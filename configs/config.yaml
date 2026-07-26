@@ -1,0 +1,10 @@
+defaults:
+  - data: isic
+  - model: efficientnet_b4
+  - training: default
+  - _self_
+
+hydra:
+  output_subdir: null   # don't create per-run output dirs (artifacts go to MLflow)
+  run:
+    dir: .

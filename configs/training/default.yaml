@@ -1,0 +1,17 @@
+# Full training configuration
+epochs: 15
+# B4 @ 384 needs a smaller batch than B0 @ 224; drop to 8 if you OOM.
+batch_size: 16
+# Lower LR than 1e-3 — pretrained backbones overfit quickly on ISIC at 1e-3
+# (val/auroc peaked ~epoch 2–3, then fell while train/auroc → 0.99).
+lr: 3.0e-4
+weight_decay: 1.0e-3
+precision: "16-mixed"          # automatic mixed precision — 2x throughput on modern GPUs
+early_stopping_patience: 5
+deterministic: false           # true costs ~15-25% throughput by disabling cuDNN autotuning
+focal_gamma: 2.0
+focal_alpha: 0.25
+seed: 42
+experiment_name: melanoma-detection
+# Overridden by env MLFLOW_TRACKING_URI when set (use that for remote/EC2 tracking).
+mlflow_uri: "http://localhost:5000"

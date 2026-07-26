@@ -1,0 +1,9 @@
+# EfficientNet-B2 backbone — ablation baseline (faster, ~9M params)
+# Feature dim: 1408   Useful for quick experiments / CPU-only training
+backbone: efficientnet_b2
+pretrained: true
+backbone_dropout: 0.2
+meta_hidden_dim: 64
+meta_output_dim: 32
+meta_dropout: 0.3
+fusion_dropout: 0.5

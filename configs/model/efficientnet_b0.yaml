@@ -1,0 +1,10 @@
+# EfficientNet-B0 backbone — default for single-GPU training
+# Feature dim: 1280   Native resolution: 224px
+# ~5M params — roughly 8x less compute per image than B4 at 384px
+backbone: efficientnet_b0
+pretrained: true
+backbone_dropout: 0.2
+meta_hidden_dim: 64
+meta_output_dim: 32
+meta_dropout: 0.3
+fusion_dropout: 0.5

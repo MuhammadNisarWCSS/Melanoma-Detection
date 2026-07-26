@@ -1,0 +1,10 @@
+# EfficientNet-B4 backbone — primary model
+# Feature dim: 1792   Image size: 380px (works well at 384)
+# ~19M parameters — good balance of accuracy and training speed on a single GPU
+backbone: efficientnet_b4
+pretrained: true
+backbone_dropout: 0.2
+meta_hidden_dim: 64
+meta_output_dim: 32
+meta_dropout: 0.3
+fusion_dropout: 0.5

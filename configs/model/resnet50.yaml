@@ -1,0 +1,9 @@
+# ResNet-50 backbone — further baseline for ablation comparisons
+# Feature dim: 2048   Classic architecture; useful to demonstrate B4 improvement
+backbone: resnet50
+pretrained: true
+backbone_dropout: 0.2
+meta_hidden_dim: 64
+meta_output_dim: 32
+meta_dropout: 0.3
+fusion_dropout: 0.5

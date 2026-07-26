@@ -1,0 +1,70 @@
+# Portfolio stack: frontend (nginx) + FastAPI + MLflow
+#
+#   docker compose up --build
+#
+# Site:     http://localhost:3000
+# API docs: http://localhost:8000/docs
+# MLflow:   http://localhost:5000
+#
+# MLflow persists to the named volume `mlflow-data` (EC2 source of truth).
+# Seed laptop history once:  python scripts/prepare_mlflow_seed.py
+#   then: docker compose -f docker-compose.yml -f docker-compose.seed.yml up -d --build mlflow
+# Browse host files without seeding:
+#   docker compose -f docker-compose.yml -f docker-compose.host-data.yml up mlflow
+#
+# Optional: bake a model before building the API image (see README Docker section).
+
+services:
+  mlflow:
+    build:
+      context: .
+      dockerfile: docker/mlflow/Dockerfile
+    container_name: melanoma-mlflow
+    ports:
+      - "5000:5000"
+    volumes:
+      # EC2 / portable default: data lives in the Docker volume, not your laptop disk.
+      - mlflow-data:/mlflow
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/api/Dockerfile
+    container_name: melanoma-api
+    ports:
+      - "8000:8000"
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      THRESHOLD_PATH: /app/artifacts/threshold.json
+      DEVICE: cpu
+      # Leave unset to auto-pick the best val/auroc run from MLflow, or the
+      # baked /app/serving_model if present. Pin with e.g.:
+      # MODEL_URI: runs:/YOUR_RUN_ID/model
+    volumes:
+      # Live-update threshold without rebuilding (optional)
+      - ./artifacts:/app/artifacts:ro
+    depends_on:
+      mlflow:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: /api
+        VITE_MLFLOW_URL: /mlflow
+    container_name: melanoma-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      api:
+        condition: service_healthy
+      mlflow:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  mlflow-data:

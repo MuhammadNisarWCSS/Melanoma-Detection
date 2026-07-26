@@ -1,0 +1,16 @@
+# Smoke-test configuration: 2 batches, no GPU required, finishes in <60s
+# Requires the MLflow tracking server to be running (see README).
+# CI does not use this file — tests/integration/test_training_smoke.py builds its own config.
+epochs: 2
+batch_size: 4
+lr: 1.0e-3
+weight_decay: 1.0e-4
+precision: "32"               # CPU-compatible; AMP not needed for smoke tests
+early_stopping_patience: 2
+deterministic: true
+focal_gamma: 2.0
+focal_alpha: 0.25
+seed: 42
+experiment_name: melanoma-smoke
+mlflow_uri: "http://localhost:5000"  # same tracking server as full runs; separate experiment keeps smoke runs out of the way
+fast_dev_run: true

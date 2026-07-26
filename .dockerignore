@@ -1,0 +1,48 @@
+.git
+.github
+.venv
+venv
+env
+__pycache__
+*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.htmlcov
+.coverage
+dist
+build
+*.egg-info
+
+# Data — never bake into images
+data/raw
+data/processed
+outputs
+multirun
+.hydra
+
+# Local tracking / checkpoints (use volume or serving_model instead)
+mlflow.db
+mlartifacts
+**/mlruns
+*.ckpt
+*.pth
+*.pt
+
+# Frontend build artifacts (frontend image has its own context)
+frontend/node_modules
+frontend/dist
+
+# Notebooks / IDE / docs noise
+notebooks
+.vscode
+.idea
+*.md
+!README.md
+LICENSE
+.env
+kaggle.json
+.kaggle
+
+# Tests not needed at runtime
+tests

@@ -1,0 +1,12 @@
+# Optional override: mount host-side MLflow data into the container.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.host-data.yml up mlflow
+#
+# Use this on your laptop to browse existing ./mlflow.db + ./mlartifacts.
+# Do NOT use on EC2 unless you have copied those files onto the instance first.
+
+services:
+  mlflow:
+    volumes: !override
+      - ./mlflow.db:/mlflow/mlflow.db
+      - ./mlartifacts:/mlflow/artifacts

@@ -1,0 +1,17 @@
+# ISIC 2020 dataset configuration
+raw_dir: data/raw
+processed_dir: data/processed
+# Pre-resized cache built by scripts/resize_images.py. The raw ISIC JPEGs run up to
+# 6000x4000, and decoding them on every epoch starves the GPU. Point this at
+# data/raw/jpeg/train to train against the originals instead.
+# B4 @ 384 needs a larger cache than jpeg_256 — build with:
+#   python scripts/resize_images.py --size 448
+image_dir: data/processed/jpeg_448
+image_size: 384   # EfficientNet-B4 native-ish resolution; use 224 + jpeg_256 for B0
+# 0 avoids Windows spawn, which deadlocked while pickling the dataset to workers.
+# Against the pre-resized cache a single process sustains ~320 samples/s, which is
+# enough to keep the GPU fed; raise this only on Linux.
+num_workers: 0
+val_split: 0.15
+test_split: 0.05
+random_state: 42
