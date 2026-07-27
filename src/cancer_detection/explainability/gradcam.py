@@ -35,17 +35,28 @@ class _ImageOnlyWrapper(nn.Module):
 
 
 def _get_target_layer(model: MelanomaClassifier) -> nn.Module:
-    """Return the last convolutional block of the EfficientNet backbone.
+    """Return the last convolutional layer of the backbone before global pooling.
 
-    Rationale: GradCAM on the final conv block produces the highest spatial
-    resolution map that still contains rich semantic activations. For ResNet
-    fallback, layer4[-1] serves the same role.
+    Rationale: GradCAM needs the final spatial layer whose channel weights encode
+    the full discriminative representation.
+
+    - EfficientNet (timm): `conv_head` is the 1×1 conv that projects the last
+      block stage (≈160 ch) to 1792 ch just before AdaptiveAvgPool.  Targeting
+      `blocks[-1]` instead loses this learned projection and produces weak,
+      spurious heatmaps dominated by low-level activations (e.g. specular
+      highlights) rather than the lesion.
+    - ResNet (timm): `layer4[-1]` is the standard choice — the last residual
+      block before the final FC, with the same spatial resolution.
     """
     backbone = model.backbone
-    if hasattr(backbone, "blocks"):
-        return backbone.blocks[-1]  # EfficientNet (timm)
+    if hasattr(backbone, "conv_head"):
+        return backbone.conv_head  # EfficientNet (timm)
     if hasattr(backbone, "layer4"):
         return backbone.layer4[-1]  # ResNet (timm)
+    if hasattr(backbone, "blocks"):
+        # Generic fallback for other timm architectures that expose blocks but
+        # no dedicated final conv.
+        return backbone.blocks[-1]
     raise ValueError(
         f"Cannot determine GradCAM target layer for backbone type {type(backbone).__name__}. "
         "Add a branch for your architecture in explainability/gradcam.py."
