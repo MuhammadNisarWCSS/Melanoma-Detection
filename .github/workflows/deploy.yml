@@ -46,12 +46,6 @@ jobs:
     name: Build and push to ECR
     runs-on: ubuntu-latest
 
-    outputs:
-      ecr_registry: ${{ steps.meta.outputs.ecr_registry }}
-      mlflow_image: ${{ steps.meta.outputs.mlflow_image }}
-      api_image: ${{ steps.meta.outputs.api_image }}
-      frontend_image: ${{ steps.meta.outputs.frontend_image }}
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -102,13 +96,6 @@ jobs:
           docker push "$FRONTEND_IMAGE:$IMAGE_TAG"
           docker push "$FRONTEND_IMAGE:latest"
 
-          {
-            echo "ecr_registry=$ECR_REGISTRY"
-            echo "mlflow_image=$MLFLOW_IMAGE:latest"
-            echo "api_image=$API_IMAGE:latest"
-            echo "frontend_image=$FRONTEND_IMAGE:latest"
-          } >> "$GITHUB_OUTPUT"
-
   deploy-ec2:
     name: Pull and run on EC2
     needs: build-and-push
@@ -136,14 +123,23 @@ jobs:
           script: |
             set -euo pipefail
 
-            # Interpolated by Actions before SSH — avoids appleboy `envs` drops
-            # that leave ECR_REGISTRY empty and make `docker login` hit Docker Hub.
-            ECR_REGISTRY='${{ needs.build-and-push.outputs.ecr_registry }}'
-            MLFLOW_IMAGE='${{ needs.build-and-push.outputs.mlflow_image }}'
-            API_IMAGE='${{ needs.build-and-push.outputs.api_image }}'
-            FRONTEND_IMAGE='${{ needs.build-and-push.outputs.frontend_image }}'
+            # Secrets are fine here; job outputs that embed the AWS account ID get
+            # stripped by Actions when the account ID is masked — so derive images
+            # on the host instead of passing ECR URIs from build-and-push.
             AWS_REGION='${{ secrets.AWS_REGION }}'
             MLFLOW_SEED_S3_URI='${{ secrets.MLFLOW_SEED_S3_URI }}'
+
+            if [ -z "${AWS_REGION:-}" ]; then
+              echo "ERROR: AWS_REGION secret is empty"
+              exit 1
+            fi
+
+            # Same account/region that build-and-push used; repos are mlflow/api/frontend.
+            ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+            ECR_REGISTRY="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+            MLFLOW_IMAGE="$ECR_REGISTRY/mlflow:latest"
+            API_IMAGE="$ECR_REGISTRY/api:latest"
+            FRONTEND_IMAGE="$ECR_REGISTRY/frontend:latest"
 
             cd "$HOME/cancer-detection"
             SEED_DIR="$HOME/mlflow-seed"
@@ -151,13 +147,7 @@ jobs:
             COMPOSE="docker compose --project-directory . -f docker/docker-compose.yml -f docker/docker-compose.ecr.yml -f docker/docker-compose.ec2.yml"
             export MLFLOW_IMAGE API_IMAGE FRONTEND_IMAGE
 
-            for required in ECR_REGISTRY MLFLOW_IMAGE API_IMAGE FRONTEND_IMAGE AWS_REGION; do
-              eval "val=\${$required:-}"
-              if [ -z "$val" ]; then
-                echo "ERROR: $required is empty — check build-and-push outputs / secrets"
-                exit 1
-              fi
-            done
+            echo "Pulling from $ECR_REGISTRY"
 
             # Drop any prior accidental Docker Hub login (AWS token as password).
             docker logout 2>/dev/null || true
