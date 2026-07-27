@@ -214,11 +214,22 @@ jobs:
 
             # shellcheck disable=SC2086
             $COMPOSE $SEED_FILE pull
+            set +e
             # shellcheck disable=SC2086
             $COMPOSE $SEED_FILE up -d --remove-orphans
+            UP_RC=$?
+            set -e
+            if [ "$UP_RC" -ne 0 ]; then
+              echo "WARNING: compose up exited $UP_RC — checking services anyway"
+              docker logs melanoma-api --tail 120 || true
+              docker logs melanoma-mlflow --tail 40 || true
+            fi
 
             echo "Waiting for health checks…"
             i=0
+            ML_OK=0
+            API_OK=0
+            FE_OK=0
             while [ "$i" -lt 60 ]; do
               ML_OK=0
               API_OK=0
@@ -238,7 +249,7 @@ jobs:
               echo "ERROR: stack did not become healthy in time (ml=$ML_OK api=$API_OK fe=$FE_OK)"
               $COMPOSE ps
               docker logs melanoma-mlflow --tail 80 || true
-              docker logs melanoma-api --tail 80 || true
+              docker logs melanoma-api --tail 120 || true
               docker logs melanoma-frontend --tail 40 || true
               exit 1
             fi

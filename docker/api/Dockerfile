@@ -31,7 +31,8 @@ RUN pip install --no-cache-dir --upgrade pip \
         --index-url https://download.pytorch.org/whl/cpu
 
 COPY docker/api/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh \
+RUN sed -i 's/\r$//' /entrypoint.sh \
+    && chmod +x /entrypoint.sh \
     && mkdir -p /app/serving_model /app/artifacts
 
 # Optional baked model / threshold — place files before build:
@@ -42,7 +43,7 @@ COPY artifacts/ /app/artifacts/
 
 EXPOSE 8000
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=5s --start-period=180s --retries=5 \
     CMD curl -fsS http://127.0.0.1:8000/health || exit 1
 
 ENTRYPOINT ["/entrypoint.sh"]

@@ -69,7 +69,7 @@ services:
       - "3000:80"
     depends_on:
       api:
-        condition: service_healthy
+        condition: service_started
       mlflow:
         condition: service_healthy
     restart: unless-stopped

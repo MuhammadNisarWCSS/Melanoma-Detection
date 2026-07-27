@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import io
 import os
 from contextlib import asynccontextmanager
@@ -23,9 +24,8 @@ logger = get_logger(__name__)
 predictor: Predictor | None = None
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Load the model once at startup; release resources on shutdown."""
+def _load_predictor() -> None:
+    """Resolve and load the model (runs in a worker thread at startup)."""
     global predictor
 
     threshold_path = os.environ.get("THRESHOLD_PATH", "artifacts/threshold.json")
@@ -50,14 +50,31 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         )
         logger.info("API ready")
     except Exception as exc:
-        # Graceful degradation: API starts but returns 503 on predict requests.
-        # Allows health checks to pass even when the model registry is unavailable.
+        # Graceful degradation: API stays up; predict endpoints return 503.
         logger.warning("Model not loaded — predict endpoints will return 503", error=str(exc))
 
-    yield
 
-    predictor = None
-    logger.info("API shutdown")
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    """Start serving immediately; load the model in the background.
+
+    Docker healthchecks hit /health during start-period. Blocking on a large
+    MLflow/torch load here made the API look unhealthy and blocked frontend.
+    """
+    global predictor
+
+    load_task = asyncio.create_task(asyncio.to_thread(_load_predictor))
+    try:
+        yield
+    finally:
+        if not load_task.done():
+            load_task.cancel()
+            try:
+                await load_task
+            except asyncio.CancelledError:
+                pass
+        predictor = None
+        logger.info("API shutdown")
 
 
 app = FastAPI(
