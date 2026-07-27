@@ -19,6 +19,7 @@ stream into the same volume live.
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import sqlite3
 import subprocess
@@ -61,9 +62,25 @@ def _package() -> tuple[int, int, int]:
 
 def _upload_s3(uri: str) -> None:
     uri = uri.rstrip("/")
-    cmd = ["aws", "s3", "sync", str(DEST), uri, "--delete"]
+    # CRC32 avoids intermittent BadDigest/CRC64NVME failures on large
+    # multipart uploads (common with AWS CLI v2 + big .ckpt files on Windows).
+    cmd = [
+        "aws",
+        "s3",
+        "sync",
+        str(DEST),
+        uri,
+        "--delete",
+        "--checksum-algorithm",
+        "CRC32",
+    ]
     print("Uploading seed:", " ".join(cmd))
-    subprocess.run(cmd, check=True)
+    env = {
+        **os.environ,
+        "AWS_REQUEST_CHECKSUM_CALCULATION": "when_required",
+        "AWS_RESPONSE_CHECKSUM_VALIDATION": "when_required",
+    }
+    subprocess.run(cmd, check=True, env=env)
     print(f"Uploaded to {uri}")
 
 
@@ -106,7 +123,7 @@ def main() -> int:
 
     print()
     print("Next (pick one):")
-    print("  A) Upload for GitHub→EC2 deploy:")
+    print("  A) Upload for GitHub->EC2 deploy:")
     print("       python scripts/prepare_mlflow_seed.py --s3 s3://YOUR_BUCKET/mlflow-seed")
     print("  B) Manual copy to EC2:")
     print("       scp -r mlflow-seed/ ec2-user@18.219.3.159:~/mlflow-seed/")

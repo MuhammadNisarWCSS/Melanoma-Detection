@@ -168,16 +168,38 @@ jobs:
             if [ "$HAS_DB" -eq 1 ]; then
               echo "Volume already has tracking data — keeping it (history + live runs preserved)."
             else
-              echo "Empty volume — importing run history from S3 (one-time seed)."
-              if [ -z "${MLFLOW_SEED_S3_URI:-}" ]; then
-                echo "ERROR: Set GitHub secret MLFLOW_SEED_S3_URI and upload seed:"
-                echo "  python scripts/prepare_mlflow_seed.py --s3 s3://cancer-detection-mlflow-seed/mlflow-seed"
+              echo "Empty volume — importing run history (one-time seed)."
+              SEED_URI="${MLFLOW_SEED_S3_URI%/}"
+              mkdir -p "$SEED_DIR"
+
+              # Prefer S3 when it actually contains mlflow.db. Never sync --delete
+              # from an empty/wrong prefix (that wiped a good local seed before).
+              S3_HAS_DB=0
+              if [ -n "$SEED_URI" ] && aws s3 ls "${SEED_URI}/mlflow.db" >/dev/null 2>&1; then
+                S3_HAS_DB=1
+              fi
+
+              if [ "$S3_HAS_DB" -eq 1 ]; then
+                echo "Seeding from $SEED_URI"
+                aws s3 sync "${SEED_URI}/" "$SEED_DIR/" --delete
+              elif [ -f "$SEED_DIR/mlflow.db" ]; then
+                echo "WARNING: S3 seed missing/empty at '${SEED_URI:-<unset>}' — using existing $SEED_DIR"
+                echo "  Upload with: python scripts/prepare_mlflow_seed.py --s3 s3://YOUR_BUCKET/mlflow-seed"
+              else
+                echo "ERROR: Empty MLflow volume and no seed available."
+                echo "  1. On your laptop (with mlflow.db + mlartifacts/):"
+                echo "       python scripts/prepare_mlflow_seed.py --s3 s3://YOUR_BUCKET/mlflow-seed"
+                echo "  2. Set GitHub secret MLFLOW_SEED_S3_URI to that same URI (no trailing slash issues)."
+                echo "  Current MLFLOW_SEED_S3_URI='${SEED_URI:-<unset>}'"
+                if [ -n "$SEED_URI" ]; then
+                  echo "  S3 prefix listing (should include mlflow.db):"
+                  aws s3 ls "${SEED_URI}/" || true
+                fi
                 exit 1
               fi
-              mkdir -p "$SEED_DIR"
-              aws s3 sync "${MLFLOW_SEED_S3_URI%/}/" "$SEED_DIR/" --delete
+
               if [ ! -f "$SEED_DIR/mlflow.db" ]; then
-                echo "ERROR: $SEED_DIR/mlflow.db missing after s3 sync"
+                echo "ERROR: $SEED_DIR/mlflow.db missing after seed step"
                 exit 1
               fi
               # seed compose expects ./mlflow-seed relative to the project directory
