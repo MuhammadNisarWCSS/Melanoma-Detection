@@ -46,8 +46,10 @@ from cancer_detection.training.lit_module import MelanomaLitModule
 from cancer_detection.utils.logger import configure_logging, get_logger
 from cancer_detection.utils.seed import set_seed
 
-configure_logging()
+_log_path = configure_logging(name="evaluate")
 logger = get_logger(__name__)
+if _log_path is not None:
+    logger.info("Writing logs to file", path=str(_log_path))
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = PROJECT_ROOT / "configs"

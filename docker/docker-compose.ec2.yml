@@ -1,0 +1,18 @@
+# EC2 / production overlay for the portfolio stack.
+#
+# - Pins mlflow-data to the exact Docker volume name used by earlier deploys
+#   (avoids Compose project-prefix renaming that would orphan history).
+# - Drops the laptop-only ./artifacts bind mount; the API image + MLflow hold
+#   thresholds and models.
+#
+#   docker compose --project-directory . \
+#     -f docker/docker-compose.yml -f docker/docker-compose.ecr.yml \
+#     -f docker/docker-compose.ec2.yml up -d
+
+services:
+  api:
+    volumes: !reset
+
+volumes:
+  mlflow-data:
+    name: mlflow-data

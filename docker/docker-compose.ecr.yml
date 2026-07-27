@@ -1,0 +1,27 @@
+# Pull images from ECR instead of building on the host.
+#
+#   export MLFLOW_IMAGE=.../mlflow:latest
+#   export API_IMAGE=.../api:latest
+#   export FRONTEND_IMAGE=.../frontend:latest
+#   docker compose --project-directory . \
+#     -f docker/docker-compose.yml -f docker/docker-compose.ecr.yml \
+#     -f docker/docker-compose.ec2.yml pull
+#   docker compose --project-directory . \
+#     -f docker/docker-compose.yml -f docker/docker-compose.ecr.yml \
+#     -f docker/docker-compose.ec2.yml up -d
+
+services:
+  mlflow:
+    image: ${MLFLOW_IMAGE:?Set MLFLOW_IMAGE to your ECR image URI}
+    pull_policy: always
+    build: !reset
+
+  api:
+    image: ${API_IMAGE:?Set API_IMAGE to your ECR image URI}
+    pull_policy: always
+    build: !reset
+
+  frontend:
+    image: ${FRONTEND_IMAGE:?Set FRONTEND_IMAGE to your ECR image URI}
+    pull_policy: always
+    build: !reset

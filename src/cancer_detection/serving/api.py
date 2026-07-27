@@ -16,7 +16,8 @@ from cancer_detection.serving.predictor import Predictor
 from cancer_detection.serving.schemas import PredictResponse
 from cancer_detection.utils.logger import configure_logging, get_logger
 
-configure_logging()
+# File tee stays off in Docker; enable locally with LOG_TO_FILE=1 if desired.
+configure_logging(name="api")
 logger = get_logger(__name__)
 
 predictor: Predictor | None = None

@@ -16,12 +16,14 @@ from cancer_detection.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-DEFAULT_TRACKING_URI = "http://localhost:5000"
+# Hosted tracking server on EC2 (public IP). Override with MLFLOW_TRACKING_URI
+# for a local server or if the instance address changes.
+DEFAULT_TRACKING_URI = "http://18.219.3.159:5000"
 VAL_AUROC_METRIC = "val/auroc"
 
 
 def ensure_tracking_uri() -> str:
-    """Use ``MLFLOW_TRACKING_URI`` when set; otherwise the local tracking server."""
+    """Use ``MLFLOW_TRACKING_URI`` when set; otherwise the hosted EC2 server."""
     uri = os.environ.get("MLFLOW_TRACKING_URI", DEFAULT_TRACKING_URI)
     mlflow.set_tracking_uri(uri)
     return uri

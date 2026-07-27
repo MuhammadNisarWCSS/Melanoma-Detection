@@ -4,7 +4,7 @@ set -e
 mkdir -p /mlflow/artifacts
 
 # One-time import of laptop tracking data (see scripts/prepare_mlflow_seed.py).
-# Mount that folder at /seed via docker-compose.seed.yml. After the first
+# Mount that folder at /seed via docker/docker-compose.seed.yml. After the first
 # successful seed, /mlflow/.seed_applied prevents overwriting live EC2 runs.
 # Force again with: docker compose exec mlflow rm /mlflow/.seed_applied
 # (or wipe the volume), then recreate with the seed compose file.

@@ -44,8 +44,10 @@ from cancer_detection.training.lit_module import MelanomaLitModule
 from cancer_detection.utils.logger import configure_logging, get_logger
 from cancer_detection.utils.seed import set_seed
 
-configure_logging()
+_log_path = configure_logging(name="train")
 logger = get_logger(__name__)
+if _log_path is not None:
+    logger.info("Writing logs to file", path=str(_log_path))
 
 # Path to the MLflow SQLite backend, resolved relative to this file so it works
 # regardless of the working directory Hydra sets at runtime.
@@ -113,8 +115,8 @@ def train(cfg: DictConfig) -> float:
     mode = "smoke test (fast_dev)" if fast_dev_run else "full training run"
     logger.info(f"Starting {mode} — initialising MLflow …")
 
-    # Prefer MLFLOW_TRACKING_URI so local training can stream to a remote
-    # server (e.g. EC2) without editing Hydra configs.
+    # Default is hosted EC2 (configs/training/*.yaml). Override with
+    # MLFLOW_TRACKING_URI for a local server without editing Hydra configs.
     tracking_uri = os.environ.get("MLFLOW_TRACKING_URI") or cfg.training.mlflow_uri
     mlflow.set_tracking_uri(tracking_uri)
     logger.info("MLflow tracking URI", uri=tracking_uri)

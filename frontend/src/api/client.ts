@@ -1,5 +1,5 @@
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
-const MLFLOW_BASE = import.meta.env.VITE_MLFLOW_URL || 'http://localhost:5000'
+const MLFLOW_BASE = import.meta.env.VITE_MLFLOW_URL || 'http://18.219.3.159:5000'
 // Match configs/training/default.yaml — exclude melanoma-smoke and Default.
 const MLFLOW_EXPERIMENT =
   import.meta.env.VITE_MLFLOW_EXPERIMENT || 'melanoma-detection'

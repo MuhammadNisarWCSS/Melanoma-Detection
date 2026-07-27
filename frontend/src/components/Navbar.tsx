@@ -56,7 +56,7 @@ export default function Navbar() {
           <div className="h-4 w-px bg-ink-600" />
 
           <a
-            href="http://localhost:5000"
+            href={import.meta.env.VITE_MLFLOW_URL || 'http://18.219.3.159:5000'}
             target="_blank"
             rel="noopener noreferrer"
             className="hidden sm:flex items-center gap-1.5 text-[12px] text-slate-500 hover:text-teal-400 transition-colors"

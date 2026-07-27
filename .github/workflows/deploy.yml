@@ -1,0 +1,224 @@
+# Build MLflow + API + frontend images, push to Amazon ECR, then pull & run
+# the full docker-compose stack on EC2.
+#
+# Hosted stack should:
+#   1) Show existing run history (one-time seed from S3 into mlflow-data)
+#   2) Keep that history across redeploys (named Docker volume mlflow-data)
+#   3) Serve the site on :3000 (nginx proxies /api → API, /mlflow → MLflow)
+#   4) Receive laptop training live on :5000 (default train.py URI)
+#
+# Required GitHub secrets:
+#   AWS_ACCESS_KEY_ID
+#   AWS_SECRET_ACCESS_KEY
+#   AWS_REGION                 e.g. us-east-2
+#   EC2_HOST                  public IP or DNS (e.g. 18.219.3.159)
+#   EC2_USER                  e.g. ec2-user or ubuntu
+#   EC2_SSH_KEY               private key PEM contents
+#   MLFLOW_SEED_S3_URI        e.g. s3://my-bucket/mlflow-seed
+#                             (upload once: python scripts/prepare_mlflow_seed.py --s3 …)
+#
+# EC2 must have Docker Compose plugin + AWS CLI, IAM/creds to pull ECR and
+# read the seed S3 prefix, and security-group inbound TCP 3000, 5000, 8000
+# from your IP.
+
+name: Deploy stack
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docker/**"
+      - "frontend/**"
+      - "src/**"
+      - "pyproject.toml"
+      - "artifacts/**"
+      - "serving_model/**"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
+
+env:
+  ECR_MLFLOW: mlflow
+  ECR_API: api
+  ECR_FRONTEND: frontend
+
+jobs:
+  build-and-push:
+    name: Build and push to ECR
+    runs-on: ubuntu-latest
+
+    outputs:
+      mlflow_image: ${{ steps.meta.outputs.mlflow_image }}
+      api_image: ${{ steps.meta.outputs.api_image }}
+      frontend_image: ${{ steps.meta.outputs.frontend_image }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Ensure ECR repositories exist
+        run: |
+          for repo in "$ECR_MLFLOW" "$ECR_API" "$ECR_FRONTEND"; do
+            aws ecr describe-repositories --repository-names "$repo" \
+              || aws ecr create-repository --repository-name "$repo" \
+                   --image-scanning-configuration scanOnPush=true
+          done
+
+      - name: Build, tag, and push images
+        id: meta
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          MLFLOW_IMAGE="$ECR_REGISTRY/$ECR_MLFLOW"
+          API_IMAGE="$ECR_REGISTRY/$ECR_API"
+          FRONTEND_IMAGE="$ECR_REGISTRY/$ECR_FRONTEND"
+
+          docker build -f docker/mlflow/Dockerfile \
+            -t "$MLFLOW_IMAGE:$IMAGE_TAG" -t "$MLFLOW_IMAGE:latest" .
+          docker build -f docker/api/Dockerfile \
+            -t "$API_IMAGE:$IMAGE_TAG" -t "$API_IMAGE:latest" .
+          docker build -f frontend/Dockerfile \
+            --build-arg VITE_API_URL=/api \
+            --build-arg VITE_MLFLOW_URL=/mlflow \
+            -t "$FRONTEND_IMAGE:$IMAGE_TAG" -t "$FRONTEND_IMAGE:latest" \
+            frontend
+
+          docker push "$MLFLOW_IMAGE:$IMAGE_TAG"
+          docker push "$MLFLOW_IMAGE:latest"
+          docker push "$API_IMAGE:$IMAGE_TAG"
+          docker push "$API_IMAGE:latest"
+          docker push "$FRONTEND_IMAGE:$IMAGE_TAG"
+          docker push "$FRONTEND_IMAGE:latest"
+
+          {
+            echo "mlflow_image=$MLFLOW_IMAGE:latest"
+            echo "api_image=$API_IMAGE:latest"
+            echo "frontend_image=$FRONTEND_IMAGE:latest"
+          } >> "$GITHUB_OUTPUT"
+
+  deploy-ec2:
+    name: Pull and run on EC2
+    needs: build-and-push
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Copy compose files to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "docker/docker-compose.yml,docker/docker-compose.ecr.yml,docker/docker-compose.ec2.yml,docker/docker-compose.seed.yml"
+          target: "~/cancer-detection"
+
+      - name: Deploy stack over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          MLFLOW_IMAGE: ${{ needs.build-and-push.outputs.mlflow_image }}
+          API_IMAGE: ${{ needs.build-and-push.outputs.api_image }}
+          FRONTEND_IMAGE: ${{ needs.build-and-push.outputs.frontend_image }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          MLFLOW_SEED_S3_URI: ${{ secrets.MLFLOW_SEED_S3_URI }}
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          envs: MLFLOW_IMAGE,API_IMAGE,FRONTEND_IMAGE,AWS_REGION,MLFLOW_SEED_S3_URI
+          script: |
+            set -eu
+
+            cd "$HOME/cancer-detection"
+            SEED_DIR="$HOME/mlflow-seed"
+            VOLUME=mlflow-data
+            COMPOSE="docker compose --project-directory . -f docker/docker-compose.yml -f docker/docker-compose.ecr.yml -f docker/docker-compose.ec2.yml"
+            export MLFLOW_IMAGE API_IMAGE FRONTEND_IMAGE
+
+            aws ecr get-login-password --region "$AWS_REGION" \
+              | docker login --username AWS --password-stdin "${MLFLOW_IMAGE%%/*}"
+
+            docker volume create "$VOLUME" >/dev/null
+
+            # Probe the named volume without wiping it.
+            HAS_DB=0
+            if docker run --rm -v "$VOLUME:/mlflow" public.ecr.aws/docker/library/busybox:1.36 \
+                 test -f /mlflow/mlflow.db; then
+              HAS_DB=1
+            fi
+
+            SEED_FILE=""
+            if [ "$HAS_DB" -eq 1 ]; then
+              echo "Volume already has tracking data — keeping it (history + live runs preserved)."
+            else
+              echo "Empty volume — importing run history from S3 (one-time seed)."
+              if [ -z "${MLFLOW_SEED_S3_URI:-}" ]; then
+                echo "ERROR: Set GitHub secret MLFLOW_SEED_S3_URI and upload seed:"
+                echo "  python scripts/prepare_mlflow_seed.py --s3 s3://cancer-detection-mlflow-seed/mlflow-seed"
+                exit 1
+              fi
+              mkdir -p "$SEED_DIR"
+              aws s3 sync "${MLFLOW_SEED_S3_URI%/}/" "$SEED_DIR/" --delete
+              if [ ! -f "$SEED_DIR/mlflow.db" ]; then
+                echo "ERROR: $SEED_DIR/mlflow.db missing after s3 sync"
+                exit 1
+              fi
+              # seed compose expects ./mlflow-seed relative to the project directory
+              rm -rf ./mlflow-seed
+              ln -sfn "$SEED_DIR" ./mlflow-seed
+              SEED_FILE="-f docker/docker-compose.seed.yml"
+            fi
+
+            # Drop legacy standalone MLflow from the old docker-run deploy.
+            docker stop melanoma-mlflow 2>/dev/null || true
+            docker rm melanoma-mlflow 2>/dev/null || true
+
+            # shellcheck disable=SC2086
+            $COMPOSE $SEED_FILE pull
+            # shellcheck disable=SC2086
+            $COMPOSE $SEED_FILE up -d --remove-orphans
+
+            echo "Waiting for health checks…"
+            i=0
+            while [ "$i" -lt 60 ]; do
+              ML_OK=0
+              API_OK=0
+              FE_OK=0
+              curl -fsS "http://127.0.0.1:5000/health" >/dev/null 2>&1 && ML_OK=1
+              curl -fsS "http://127.0.0.1:8000/health" >/dev/null 2>&1 && API_OK=1
+              curl -fsS "http://127.0.0.1:3000/" >/dev/null 2>&1 && FE_OK=1
+              if [ "$ML_OK" -eq 1 ] && [ "$API_OK" -eq 1 ] && [ "$FE_OK" -eq 1 ]; then
+                echo "Stack is up: MLflow :5000, API :8000, frontend :3000"
+                break
+              fi
+              i=$((i + 1))
+              sleep 5
+            done
+
+            if [ "$ML_OK" -ne 1 ] || [ "$API_OK" -ne 1 ] || [ "$FE_OK" -ne 1 ]; then
+              echo "ERROR: stack did not become healthy in time (ml=$ML_OK api=$API_OK fe=$FE_OK)"
+              $COMPOSE ps
+              docker logs melanoma-mlflow --tail 80 || true
+              docker logs melanoma-api --tail 80 || true
+              docker logs melanoma-frontend --tail 40 || true
+              exit 1
+            fi
+
+            $COMPOSE ps
+            echo "Site:     http://$(curl -fsS http://checkip.amazonaws.com 2>/dev/null || echo '<ec2-ip>'):3000"
+            echo "API docs: http://<ec2-ip>:8000/docs"
+            echo "MLflow:   http://<ec2-ip>:5000  (also via site /mlflow)"
+            echo "After training a better model, reload predictions with:"
+            echo "  cd ~/cancer-detection && $COMPOSE restart api"

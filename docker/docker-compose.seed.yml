@@ -1,0 +1,16 @@
+# One-time seed of local tracking history into the MLflow volume.
+#
+# On the machine that has ./mlflow-seed/ (laptop after prepare, or EC2 after S3 sync):
+#   docker compose --project-directory . \
+#     -f docker/docker-compose.yml -f docker/docker-compose.seed.yml up -d --build mlflow
+#
+# GitHub Actions Deploy stack includes this file only when mlflow-data is empty.
+# After the UI shows your experiments, later deploys omit the seed overlay —
+# the named volume keeps the data. Laptop training defaults to the EC2 URI
+# so new runs stream into that same volume.
+
+services:
+  mlflow:
+    volumes:
+      - mlflow-data:/mlflow
+      - ./mlflow-seed:/seed:ro

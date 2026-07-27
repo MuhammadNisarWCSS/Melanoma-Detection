@@ -3,9 +3,16 @@
 [![CI](https://github.com/YOUR_USERNAME/CancerDetection/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_USERNAME/CancerDetection/actions/workflows/ci.yml)
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://python.org)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.3-orange.svg)](https://pytorch.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.11+-009688.svg)](https://fastapi.tiangolo.com)
+[![React](https://img.shields.io/badge/React-18-61DAFB.svg)](https://react.dev)
+[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED.svg)](https://www.docker.com)
+[![AWS](https://img.shields.io/badge/AWS-EC2%20%7C%20ECR%20%7C%20S3-FF9900.svg)](https://aws.amazon.com)
+[![MLflow](https://img.shields.io/badge/MLflow-Tracking%20%2B%20Registry-0194E2.svg)](https://mlflow.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-A production-ready deep learning system that classifies dermoscopy images as benign or malignant melanoma using the [ISIC 2020 Kaggle competition dataset](https://www.kaggle.com/competitions/siim-isic-melanoma-classification).
+A production-ready multimodal deep learning system that classifies dermoscopy images as benign or malignant melanoma using the [ISIC 2020 Kaggle competition dataset](https://www.kaggle.com/competitions/siim-isic-melanoma-classification) — trained with PyTorch Lightning, tracked in MLflow, served with FastAPI + GradCAM, visualized in a React dashboard, and deployed to **AWS (EC2 + ECR + S3)** through a **GitHub Actions CI/CD** pipeline.
+
+**Resume one-liner:** Built an end-to-end ML product (model → API → UI → cloud deploy) with experiment tracking, containerized multi-service infra, and automated ECR → EC2 delivery — not just a training notebook.
 
 **What makes this different from a typical Kaggle notebook:**
 
@@ -19,7 +26,10 @@ A production-ready deep learning system that classifies dermoscopy images as ben
 | Serving | FastAPI REST API with multimodal multipart/form-data input |
 | Frontend | React + Vite dashboard with live MLflow run stats |
 | Reproducibility | Hydra configs + seeded runs + full config logged to MLflow as artifact |
-| CI | GitHub Actions: lint → type-check → tests |
+| MLOps | MLflow tracking + Model Registry (`melanoma-classifier` / `@champion`) |
+| Cloud | AWS EC2 hosting, ECR container registry, S3 experiment-history seed |
+| Containers | Multi-service Docker Compose (API + MLflow + nginx frontend) |
+| CI/CD | GitHub Actions: lint → type-check → tests → build/push ECR → deploy EC2 |
 
 ---
 
@@ -90,10 +100,14 @@ CancerDetection/
 ├── frontend/                   # React + Vite + Tailwind dashboard (+ Dockerfile/nginx)
 ├── docker/
 │   ├── api/Dockerfile          # FastAPI + PyTorch inference image
-│   └── mlflow/Dockerfile       # MLflow tracking server image
-├── docker-compose.yml          # frontend + api + mlflow
+│   ├── mlflow/Dockerfile       # MLflow tracking server image
+│   ├── docker-compose.yml      # frontend + api + mlflow
+│   ├── docker-compose.ecr.yml  # pull images from ECR
+│   ├── docker-compose.ec2.yml  # EC2 volume / mount overlay
+│   └── docker-compose.*.yml    # seed / host-data overlays
+├── logs/                       # local train/eval capture (gitignored)
 ├── serving_model/              # optional baked MLflow model for the API image
-└── .github/workflows/ci.yml    # lint → type-check → unit + integration tests
+└── .github/workflows/          # ci.yml + deploy.yml
 ```
 
 ---
@@ -143,24 +157,25 @@ Then run:
 python scripts/prepare_data.py
 ```
 
-### 3. Start the MLflow tracking server
+### 3. MLflow tracking (hosted on EC2)
 
-MLflow must be running before you start training — it records metrics, parameters, and saves the trained model. Both the full training config and the `fast_dev` smoke test log here, so this needs to be up for either.
+Training logs metrics, parameters, and model artifacts to the **EC2 stack** MLflow service. The default URI in `configs/training/*.yaml` is:
 
-```bash
-# Run this in a separate terminal and leave it running
-mlflow server --host 127.0.0.1 --port 5000 --backend-store-uri sqlite:///mlflow.db
-```
+`http://18.219.3.159:5000`
 
-The MLflow UI is then available at [http://localhost:5000](http://localhost:5000). You can watch metrics update live during training.
+With the full stack deployed (step 8), open [http://18.219.3.159:3000](http://18.219.3.159:3000) for the site (metrics via `/mlflow`) or [http://18.219.3.159:5000](http://18.219.3.159:5000) for the MLflow UI. You do **not** need a local `mlflow server` for normal training.
 
-> **Note:** The server stores experiment data in `mlflow.db` (SQLite) and artifacts in `mlartifacts/`, both in your project root. Both are gitignored — your run history is local to your machine.
+- **Laptop still trains** (GPU/CPU, data, Lightning checkpoints under `1/<run_id>/checkpoints/`).
+- **EC2 stores** the MLflow DB + uploaded artifacts (same volume the hosted API and frontend use).
+- Override with `MLFLOW_TRACKING_URI=http://localhost:5000` only if you intentionally run a local tracking server.
+
+> **Note:** If the EC2 public IP changes (no Elastic IP), update `mlflow_uri` in the training configs and `DEFAULT_TRACKING_URI` in `src/cancer_detection/serving/model_uri.py`.
 
 ### 4. Train
 
 **Smoke test — run this first**
 
-Runs only 2 batches on CPU. Finishes in under 60 seconds and confirms your environment, data pipeline, and model code are all wired up correctly before committing to a long GPU run.
+Runs only 2 batches on CPU. Finishes in under 60 seconds and confirms your environment, data pipeline, and model code are all wired up correctly before committing to a long GPU run. Logs to the hosted MLflow experiment `melanoma-smoke`.
 
 ```bash
 python scripts/train.py training=fast_dev
@@ -168,7 +183,7 @@ python scripts/train.py training=fast_dev
 
 **Full training run**
 
-Trains the default EfficientNet-B4 + metadata fusion model to completion. Requires a GPU. Logs metrics and saves the model to MLflow.
+Trains the default EfficientNet-B4 + metadata fusion model to completion. Requires a GPU. Streams metrics to EC2 and uploads the logged `model` artifact there. Top-3 AUROC Lightning checkpoints remain on your laptop under `1/<run_id>/checkpoints/`.
 
 ```bash
 python scripts/train.py
@@ -217,7 +232,7 @@ python scripts/evaluate.py --save-predictions
 
 ### 6. Run the API locally
 
-Keep the MLflow server from step 3 running, then start the API. It automatically loads the finished run with the highest validation AUROC (`val/auroc`) that logged a `model` artifact — no run id to paste.
+Start the API; it talks to the same hosted MLflow (`http://18.219.3.159:5000` by default) and loads the finished run with the highest validation AUROC (`val/auroc`) that logged a `model` artifact — no run id to paste.
 
 ```bash
 uvicorn cancer_detection.serving.api:app --host 0.0.0.0 --port 8000 --reload
@@ -289,10 +304,12 @@ Available at [http://localhost:3000](http://localhost:3000). Override the backen
 
 ### 8. Run with Docker (frontend + API + MLflow)
 
-Three containers, one command:
+#### Local laptop stack
+
+Three containers, one command (same wiring as EC2):
 
 ```bash
-docker compose up --build
+docker compose --project-directory . -f docker/docker-compose.yml up --build
 ```
 
 | Service | URL |
@@ -301,74 +318,79 @@ docker compose up --build
 | API (Swagger) | http://localhost:8000/docs |
 | MLflow | http://localhost:5000 |
 
-The frontend nginx proxies `/api` → FastAPI and `/mlflow` → MLflow, so the browser only needs port 3000.
+The frontend nginx proxies `/api` → FastAPI and `/mlflow` → MLflow, so the browser only needs port 3000. The API auto-picks the finished run with highest `val/auroc` that logged a `model` artifact.
 
-MLflow’s default compose mount is the named volume `mlflow-data`. The image does **not** embed your laptop’s `mlflow.db` / `mlartifacts` — for EC2 you seed once, then train against that server so it stays the source of truth.
-
-#### Host MLflow on EC2 with existing local runs + live local training
-
-1. **Package local history** (on your laptop):
+For a laptop-only MLflow that reads your host `mlflow.db` / `mlartifacts`:
 
 ```bash
-python scripts/prepare_mlflow_seed.py
+docker compose --project-directory . \
+  -f docker/docker-compose.yml -f docker/docker-compose.host-data.yml up mlflow
+# then: MLFLOW_TRACKING_URI=http://localhost:5000 python scripts/train.py
 ```
 
-This writes `mlflow-seed/` (`mlflow.db` + artifacts) and closes abandoned `RUNNING` runs.
+#### Host full stack on EC2 (recommended)
 
-2. **Copy the project (or at least compose + seed) to EC2**, including `mlflow-seed/`:
+Same three services on one instance, sharing Docker volume `mlflow-data`. Public host: `18.219.3.159`.
+
+| Service | URL |
+|---|---|
+| Website | http://18.219.3.159:3000 |
+| API (Swagger) | http://18.219.3.159:8000/docs |
+| MLflow | http://18.219.3.159:5000 (also via site `/mlflow`) |
+
+**Security group:** allow inbound TCP **3000**, **5000**, and **8000** from your IP (5000 is required for laptop training).
+
+1. **Package + upload history once** (laptop; needs AWS CLI):
 
 ```bash
-scp -r mlflow-seed/ ec2-user@<ec2-host>:~/CancerDetection/
-# also sync the repo / compose files if they are not already on the instance
+python scripts/prepare_mlflow_seed.py --s3 s3://YOUR_BUCKET/mlflow-seed
 ```
 
-3. **Start MLflow on EC2 with the seed** (open security-group inbound **TCP 5000** to your IP):
+2. **GitHub secrets** (Settings → Secrets → Actions):  
+   `AWS_*`, `EC2_HOST` (= `18.219.3.159`), `EC2_USER`, `EC2_SSH_KEY`, and  
+   `MLFLOW_SEED_S3_URI` = `s3://YOUR_BUCKET/mlflow-seed`
+
+3. **Deploy** — Actions → **Deploy stack** (or push to `main` when compose/Docker/app paths change).  
+   Builds and pushes `mlflow`, `api`, and `frontend` images to ECR, copies `docker/docker-compose*.yml` to EC2, then  
+   `docker compose --project-directory . -f docker/docker-compose.yml -f docker/docker-compose.ecr.yml -f docker/docker-compose.ec2.yml up -d`.  
+   First boot: imports the S3 seed into volume `mlflow-data`. Later deploys **keep** that volume.
+
+4. **Train on the laptop** — defaults already point at EC2 MLflow:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.seed.yml up -d --build mlflow
-```
-
-On first boot the entrypoint copies `/seed` into the `mlflow-data` volume. After the UI shows your experiments you can drop the seed overlay and keep using the volume alone:
-
-```bash
-docker compose up -d mlflow
-```
-
-4. **Train on the laptop against EC2** — new metrics/models stream to the hosted UI in real time:
-
-```powershell
-# PowerShell
-$env:MLFLOW_TRACKING_URI = "http://<ec2-host>:5000"
 python scripts/train.py
 ```
 
-```bash
-# bash
-export MLFLOW_TRACKING_URI=http://<ec2-host>:5000
-python scripts/train.py
-```
+Open [http://18.219.3.159:3000](http://18.219.3.159:3000) — run stats update live from MLflow.  
+Do **not** keep a local `mlflow server` as source of truth after this; a local `mlflow.db` will diverge.
 
-Do **not** keep writing to a local `mlflow server` if EC2 is the source of truth — local `mlflow.db` will diverge. Hydra override also works: `training.mlflow_uri=http://<ec2-host>:5000`.
-
-**Laptop-only: browse host files without seeding**
+5. **After a better training run** — frontend metrics update immediately; predictions use the model loaded at API startup. Restart the API on EC2 to pick up the new best AUROC model:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.host-data.yml up mlflow
+ssh <user>@18.219.3.159
+cd ~/cancer-detection
+docker compose --project-directory . \
+  -f docker/docker-compose.yml -f docker/docker-compose.ecr.yml \
+  -f docker/docker-compose.ec2.yml restart api
 ```
 
-**Give the API a model** (pick one):
+**Download a run’s model artifact to the laptop** (optional):
 
-1. **Bake it into the image** (recommended for AWS) — download your best run’s model, then rebuild:
+```bash
+mlflow artifacts download --artifact-uri runs:/YOUR_RUN_ID/model --dst-path serving_model
+```
+
+**Local Vite vs hosted frontend:** `npm run dev` defaults to the EC2 MLflow URL for metrics; the Docker/EC2 frontend build bakes `VITE_API_URL=/api` and `VITE_MLFLOW_URL=/mlflow` (nginx proxies) so the browser only needs port 3000.
+
+**Bake a model into the API image** (optional offline fallback):
 
 ```bash
 mlflow artifacts download --artifact-uri runs:/YOUR_RUN_ID/model --dst-path serving_model
 # Keep artifacts/threshold.json in place if you have a calibrated threshold
-docker compose up --build
+docker compose --project-directory . -f docker/docker-compose.yml up --build
 ```
 
-2. **Point the API at the same MLflow** — with compose, `MLFLOW_TRACKING_URI=http://mlflow:5000` already does this once runs exist on that server.
-
-Pushing to GitHub does **not** sync local MLflow data; use the seed flow above.
+Pushing to GitHub does **not** sync laptop MLflow folders; use the seed flow above for history migration.
 
 ### 9. Run tests
 
@@ -416,18 +438,141 @@ ISIC 2020 public leaderboard (AUC-ROC): Top-10 solutions score ~0.94–0.96 usin
 
 ## Technology Stack
 
-| Layer | Technology |
+End-to-end stack spanning training, MLOps, API serving, frontend, containers, and AWS deployment — the kind of breadth employers look for in ML / MLOps / full-stack AI roles.
+
+| Layer | Technologies |
 |---|---|
-| Core ML | PyTorch 2.3, PyTorch Lightning 2.3, timm |
-| Augmentation | Albumentations 1.4 |
-| Experiment tracking | MLflow (tracking + model registry) |
-| Configuration | Hydra-core |
-| Explainability | pytorch-grad-cam |
-| Serving | FastAPI, Pydantic v2, Uvicorn |
-| Frontend | React 18, Vite 5, Tailwind CSS, framer-motion |
-| Observability | structlog (structured JSON logs) |
-| Code quality | ruff, mypy, pytest, pytest-cov |
-| CI | GitHub Actions |
+| **Languages** | Python 3.11, TypeScript, Shell |
+| **Deep Learning** | PyTorch 2.3, PyTorch Lightning 2.3, timm (EfficientNet-B4 / B2 / B0, ResNet-50) |
+| **Data & Augmentation** | Albumentations, NumPy, Pandas, Pillow, OpenCV, scikit-learn |
+| **Training metrics** | torchmetrics (AUROC, F1), custom partial AUC, ECE / reliability diagrams |
+| **Configuration** | Hydra + OmegaConf (composable YAML; zero hardcoded hyperparameters) |
+| **Experiment tracking** | MLflow Tracking, Model Registry, artifact store (SQLite + filesystem) |
+| **Explainability** | pytorch-grad-cam (GradCAM heatmaps in every prediction) |
+| **API / Serving** | FastAPI, Pydantic v2, Uvicorn, python-multipart |
+| **Frontend** | React 18, Vite 5, TypeScript, Tailwind CSS, framer-motion, lucide-react |
+| **Web / proxy** | nginx (SPA + reverse proxy for `/api` and `/mlflow`) |
+| **Containers** | Docker, Docker Compose (multi-service overlays for local / ECR / EC2 / seed) |
+| **Cloud (AWS)** | EC2, ECR, S3, IAM credentials, AWS CLI |
+| **CI/CD** | GitHub Actions (CI quality gates + CD build/push/deploy) |
+| **Observability** | structlog (JSON logs), Docker healthchecks, deploy-time health polling |
+| **Code quality** | ruff, mypy, pytest, pytest-cov, Codecov |
+| **Packaging** | hatchling (`pip install -e ".[dev]"`), Node 20 / npm |
+
+---
+
+## Cloud Architecture & DevOps
+
+Training runs on a laptop GPU; the **source of truth for experiments and serving** lives on AWS. That split mirrors real ML teams: heavy compute locally or on a training box, durable tracking and inference in the cloud.
+
+```mermaid
+flowchart LR
+    subgraph Laptop["Laptop / GPU"]
+        Train[train.py / evaluate.py]
+        Data[ISIC data + Lightning ckpts]
+    end
+
+    subgraph AWS["AWS"]
+        S3[(S3 — MLflow seed)]
+        ECR[(ECR — mlflow / api / frontend images)]
+        subgraph EC2["EC2 instance"]
+            FE[nginx frontend :3000]
+            API[FastAPI :8000]
+            ML[MLflow :5000]
+            Vol[(Docker volume mlflow-data)]
+        end
+    end
+
+    subgraph GHA["GitHub Actions"]
+        CI[CI: lint · mypy · pytest]
+        CD[CD: build → ECR → SSH deploy]
+    end
+
+    Train -->|metrics + model artifacts| ML
+    Data --> Train
+    S3 -.->|one-time seed| Vol
+    Vol --> ML
+    ML --> API
+    API --> FE
+    ML --> FE
+    CD -->|push images| ECR
+    ECR -->|pull + compose up| EC2
+    CI -->|gate merges| CD
+```
+
+### What each AWS piece does
+
+| Service | Role in this project |
+|---|---|
+| **Amazon EC2** | Single instance runs the full production stack: React/nginx frontend, FastAPI inference API, and MLflow tracking server. Security group opens TCP **3000 / 5000 / 8000**. Laptop training streams live to `:5000`. |
+| **Amazon ECR** | Private registry for three images (`mlflow`, `api`, `frontend`). Images tagged with both `git SHA` and `latest`; scan-on-push enabled. EC2 pulls from ECR instead of building on the instance. |
+| **Amazon S3** | One-time migration of local MLflow history (`mlflow.db` + artifacts) via `scripts/prepare_mlflow_seed.py --s3 …`. First EC2 boot syncs the seed into a named Docker volume so run history survives redeploys. |
+| **IAM + AWS CLI** | GitHub Actions assumes credentials to push to ECR; the EC2 host uses AWS CLI for ECR login and S3 sync during deploy. |
+| **Docker Compose overlays** | Same base compose file, environment-specific layers: `ecr.yml` (pre-built images), `ec2.yml` (persistent volume, no laptop binds), `seed.yml` (first-boot import), `host-data.yml` (local debugging). |
+
+### Why this design matters (resume talking points)
+
+- **Separation of train vs serve** — GPU training stays on the laptop; EC2 stays lean (CPU inference + tracking), which is cost-aware and realistic.
+- **Immutable container deploys** — app code ships as ECR images, not `git pull` on the server; redeploys are repeatable.
+- **Persistent experiment history** — named volume `mlflow-data` keeps SQLite + artifacts across deploys; S3 seed handles the cold-start migration.
+- **Model promotion path** — training logs to MLflow, registers `melanoma-classifier`, sets `@champion`; the API auto-loads the finished run with highest `val/auroc` (or a pinned `MODEL_URI`).
+- **Single browser entrypoint** — nginx on `:3000` proxies `/api` and `/mlflow`, so users hit one origin while services stay decoupled.
+
+Public stack (example host): [http://18.219.3.159:3000](http://18.219.3.159:3000) · API docs `:8000/docs` · MLflow `:5000`.
+
+---
+
+## CI/CD Pipeline
+
+Two GitHub Actions workflows gate quality and ship the stack automatically.
+
+### Continuous Integration (`.github/workflows/ci.yml`)
+
+Runs on every push/PR to `main` / `develop`:
+
+1. **Checkout** + Python 3.11 (pip cache)
+2. Install CPU PyTorch + `pip install -e ".[dev]"`
+3. **Lint** — `ruff check` + `ruff format --check` on `src/`, `tests/`, `scripts/`
+4. **Type-check** — `mypy` on the package
+5. **Unit tests** — `pytest tests/unit` with coverage XML
+6. **Integration tests** — training smoke + FastAPI `TestClient` flows
+7. **Coverage upload** — Codecov
+
+### Continuous Deployment (`.github/workflows/deploy.yml`)
+
+Triggered on `main` when deploy-relevant paths change (`docker/`, `frontend/`, `src/`, …), or manually via **workflow_dispatch**:
+
+```mermaid
+flowchart TD
+    A[Push to main / workflow_dispatch] --> B[Configure AWS credentials]
+    B --> C[Login to Amazon ECR]
+    C --> D[Ensure ECR repos exist]
+    D --> E[Build 3 Docker images]
+    E --> F[Tag :SHA + :latest · push to ECR]
+    F --> G[SCP compose files to EC2]
+    G --> H[SSH: ECR login · pull images]
+    H --> I{mlflow-data volume empty?}
+    I -->|yes| J[aws s3 sync seed → volume]
+    I -->|no| K[Keep existing history]
+    J --> L[docker compose up -d]
+    K --> L
+    L --> M[Health poll :5000 :8000 :3000]
+    M --> N[Stack live]
+```
+
+**Deploy job highlights:**
+
+- Builds **MLflow**, **API**, and **frontend** images in CI (frontend baked with `VITE_API_URL=/api`, `VITE_MLFLOW_URL=/mlflow`)
+- Pushes to ECR, then SCPs compose overlays and SSHs into EC2
+- Creates/preserves Docker volume `mlflow-data`; imports from S3 **only** on first boot
+- Waits until all three services pass health checks (fail-fast with container logs if not)
+- Secrets: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY`, `MLFLOW_SEED_S3_URI`
+
+### Local → cloud training loop
+
+1. Deploy stack (Actions) → MLflow live on EC2
+2. `python scripts/train.py` on laptop → logs metrics/models to hosted MLflow
+3. Frontend metrics update live; `docker compose … restart api` on EC2 to reload the best AUROC model for predictions
 
 ---
 

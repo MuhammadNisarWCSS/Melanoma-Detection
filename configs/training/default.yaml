@@ -13,5 +13,6 @@ focal_gamma: 2.0
 focal_alpha: 0.25
 seed: 42
 experiment_name: melanoma-detection
-# Overridden by env MLFLOW_TRACKING_URI when set (use that for remote/EC2 tracking).
-mlflow_uri: "http://localhost:5000"
+# Hosted MLflow on EC2 (public IP). Override with env MLFLOW_TRACKING_URI
+# (e.g. http://localhost:5000) if you run a local tracking server instead.
+mlflow_uri: "http://18.219.3.159:5000"

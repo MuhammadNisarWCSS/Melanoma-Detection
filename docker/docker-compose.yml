@@ -1,16 +1,24 @@
 # Portfolio stack: frontend (nginx) + FastAPI + MLflow
 #
-#   docker compose up --build
+# From the repo root:
+#   docker compose --project-directory . -f docker/docker-compose.yml up --build
 #
 # Site:     http://localhost:3000
 # API docs: http://localhost:8000/docs
 # MLflow:   http://localhost:5000
 #
-# MLflow persists to the named volume `mlflow-data` (EC2 source of truth).
-# Seed laptop history once:  python scripts/prepare_mlflow_seed.py
-#   then: docker compose -f docker-compose.yml -f docker-compose.seed.yml up -d --build mlflow
+# Hosted EC2 (same stack via ECR): http://18.219.3.159:3000
+#   docker compose --project-directory . \
+#     -f docker/docker-compose.yml -f docker/docker-compose.ecr.yml \
+#     -f docker/docker-compose.ec2.yml up -d
+#
+# MLflow persists to the named volume `mlflow-data`.
+# Seed history once:  python scripts/prepare_mlflow_seed.py
+#   then: docker compose --project-directory . \
+#     -f docker/docker-compose.yml -f docker/docker-compose.seed.yml up -d --build mlflow
 # Browse host files without seeding:
-#   docker compose -f docker-compose.yml -f docker-compose.host-data.yml up mlflow
+#   docker compose --project-directory . \
+#     -f docker/docker-compose.yml -f docker/docker-compose.host-data.yml up mlflow
 #
 # Optional: bake a model before building the API image (see README Docker section).
 
