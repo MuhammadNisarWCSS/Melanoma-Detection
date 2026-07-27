@@ -1,14 +1,63 @@
+import { useEffect, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { motion } from 'framer-motion'
+import { fetchApiMetadata, fetchMLflowStats } from '../api/client'
 
-const STATS = [
-  { value: '0.89', unit: 'AUROC', label: 'Validation score' },
-  { value: '8×', unit: 'TTA', label: 'Test-time augmentation' },
-  { value: 'B4+Meta', unit: '', label: 'Architecture' },
-  { value: '384²', unit: 'px', label: 'Input resolution' },
-]
+interface LiveStats {
+  auroc: string
+  tta: string
+  architecture: string
+}
+
+function useLiveHeroStats(): LiveStats {
+  const [stats, setStats] = useState<LiveStats>({
+    auroc: '0.000',
+    tta: '0×',
+    architecture: '—',
+  })
+
+  useEffect(() => {
+    let cancelled = false
+
+    Promise.allSettled([fetchMLflowStats(), fetchApiMetadata()]).then(
+      ([mlflowResult, metaResult]) => {
+        if (cancelled) return
+        setStats((prev) => {
+          const next = { ...prev }
+          if (mlflowResult.status === 'fulfilled') {
+            const { best_auroc, runs } = mlflowResult.value
+            if (best_auroc != null) next.auroc = best_auroc.toFixed(3)
+            if (runs.length > 0 && runs[0].backbone && runs[0].backbone !== 'unknown') {
+              // Condense "efficientnet_b4" → "B4+Meta" style short label
+              const raw = runs[0].backbone.toLowerCase()
+              const match = raw.match(/b(\d+)/)
+              next.architecture = match ? `B${match[1]}+Meta` : runs[0].backbone
+            }
+          }
+          if (metaResult.status === 'fulfilled') {
+            next.tta = `${metaResult.value.tta_passes}×`
+          }
+          return next
+        })
+      },
+    )
+
+    return () => { cancelled = true }
+  }, [])
+
+  return stats
+}
 
 export default function Hero() {
+  const liveStats = useLiveHeroStats()
+
+  const STATS = [
+    { value: liveStats.auroc, unit: 'AUROC', label: 'Validation score' },
+    { value: liveStats.tta, unit: 'TTA', label: 'Test-time augmentation' },
+    { value: liveStats.architecture, unit: '', label: 'Architecture' },
+    { value: '384²', unit: 'px', label: 'Input resolution' },
+  ]
+
   return (
     <section className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden px-5 pt-14">
       {/* Layered background */}

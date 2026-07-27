@@ -275,9 +275,10 @@ export async function fetchMLflowStats(): Promise<MLflowStats> {
       return {
         run_id: runId,
         backbone:
+          params['backbone'] ||
+          params['model_cfg/backbone'] ||
           params['model/backbone'] ||
           params['model.backbone'] ||
-          params['backbone'] ||
           'unknown',
         val_auroc: peak.val_auroc,
         val_f1: peak.val_f1,

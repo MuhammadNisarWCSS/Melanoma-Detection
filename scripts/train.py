@@ -182,6 +182,7 @@ def train(cfg: DictConfig) -> float:
         mlflow.log_params(
             {k: v for k, v in resolved_cfg.get("training", {}).items()}  # type: ignore[union-attr]
         )
+        mlflow.log_param("backbone", cfg.model.backbone)
         mlflow.log_dict(resolved_cfg, "hydra_config.json")  # type: ignore[arg-type]
 
         trainer.fit(lit_module, datamodule)

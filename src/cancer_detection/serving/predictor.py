@@ -67,7 +67,6 @@ class Predictor:
         logger.info("Calibrated threshold loaded", threshold=threshold)
         return threshold
 
-    @torch.no_grad()
     def predict(
         self,
         image_array: np.ndarray,
@@ -93,15 +92,18 @@ class Predictor:
         base_image = self.val_transform(image=image_array)["image"]
         base_tensor = base_image.unsqueeze(0).to(self.device)
 
-        base_logit = self.model(base_tensor, meta_tensor)
-        tta_probs = [torch.sigmoid(base_logit).item()]
+        # TTA does not need gradients; GradCAM below does, so do not wrap
+        # the whole method in @torch.no_grad().
+        with torch.no_grad():
+            base_logit = self.model(base_tensor, meta_tensor)
+            tta_probs = [torch.sigmoid(base_logit).item()]
 
-        # Additional TTA passes (transforms[0] is the same as val_transform)
-        for transform in self.tta_transforms[1:]:
-            aug_image = transform(image=image_array)["image"]
-            aug_tensor = aug_image.unsqueeze(0).to(self.device)
-            logit = self.model(aug_tensor, meta_tensor)
-            tta_probs.append(torch.sigmoid(logit).item())
+            # Additional TTA passes (transforms[0] is the same as val_transform)
+            for transform in self.tta_transforms[1:]:
+                aug_image = transform(image=image_array)["image"]
+                aug_tensor = aug_image.unsqueeze(0).to(self.device)
+                logit = self.model(aug_tensor, meta_tensor)
+                tta_probs.append(torch.sigmoid(logit).item())
 
         mean_prob = float(np.mean(tta_probs))
         std_prob = float(np.std(tta_probs))
@@ -119,7 +121,7 @@ class Predictor:
 
         if return_gradcam:
             heatmap = self.grad_cam.generate_heatmap(
-                image_tensor=base_image,
+                image_tensor=base_image.to(self.device),
                 metadata_tensor=meta_tensor.squeeze(0),
                 original_image=image_array,
             )

@@ -88,13 +88,19 @@ class GradCAMWrapper:
         """
         meta_1d = metadata_tensor.unsqueeze(0) if metadata_tensor.dim() == 1 else metadata_tensor
         wrapper = _ImageOnlyWrapper(self.model, meta_1d)
+        # Keep wrapper buffers (metadata) on the same device as the image input.
+        input_batch = image_tensor.unsqueeze(0)
+        wrapper = wrapper.to(input_batch.device)
 
-        with GradCAM(model=wrapper, target_layers=[self._target_layer]) as cam:
-            targets = [ClassifierOutputTarget(0)]
-            grayscale_cam = cam(
-                input_tensor=image_tensor.unsqueeze(0),
-                targets=targets,
-            )
+        # GradCAM needs a live autograd graph; enable_grad guards against callers
+        # that wrap inference in torch.no_grad() / inference_mode().
+        with torch.enable_grad():
+            with GradCAM(model=wrapper, target_layers=[self._target_layer]) as cam:
+                targets = [ClassifierOutputTarget(0)]
+                grayscale_cam = cam(
+                    input_tensor=input_batch,
+                    targets=targets,
+                )
         grayscale_cam = grayscale_cam[0]  # (H_cam, W_cam)
 
         # Resize original image for overlay; normalise to [0, 1]

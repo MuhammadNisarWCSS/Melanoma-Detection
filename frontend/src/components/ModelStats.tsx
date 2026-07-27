@@ -11,7 +11,7 @@ import {
   RefreshCw,
 } from 'lucide-react'
 import { motion } from 'framer-motion'
-import { fetchMLflowStats, type MLflowStats, type MLflowRun } from '../api/client'
+import { fetchMLflowStats, fetchApiMetadata, type MLflowStats, type MLflowRun } from '../api/client'
 
 // ─── Static benchmark data (from README) ─────────────────────────────────────
 
@@ -154,9 +154,15 @@ type LoadState = 'idle' | 'loading' | 'success' | 'error'
 export default function ModelStats() {
   const [loadState, setLoadState] = useState<LoadState>('idle')
   const [stats, setStats] = useState<MLflowStats | null>(null)
+  const [ttaPasses, setTtaPasses] = useState<number | null>(null)
 
   const load = () => {
     setLoadState('loading')
+
+    fetchApiMetadata()
+      .then((m) => setTtaPasses(m.tta_passes))
+      .catch(() => { /* keep null — will show fallback */ })
+
     fetchMLflowStats()
       .then((s) => { setStats(s); setLoadState('success') })
       .catch(() => setLoadState('error'))
@@ -164,9 +170,20 @@ export default function ModelStats() {
 
   useEffect(() => { load() }, [])
 
-  const bestAuroc = stats?.best_auroc ?? 0.89
+  const bestAuroc = stats?.best_auroc ?? 0
   const totalRuns = stats?.total_runs ?? null
   const hasLiveRuns = loadState === 'success' && (stats?.runs?.length ?? 0) > 0
+
+  // Derive architecture label from the best MLflow run's backbone param.
+  const bestBackbone = stats?.runs?.[0]?.backbone
+  let architectureLabel = '—'
+  if (bestBackbone && bestBackbone !== 'unknown') {
+    const match = bestBackbone.toLowerCase().match(/b(\d+)/)
+    architectureLabel = match ? `B${match[1]}+Meta` : bestBackbone
+  }
+
+  const ttaLabel = ttaPasses != null ? `${ttaPasses}×` : '—'
+  const ttaSub = ttaPasses != null ? 'Live from API' : 'Test-time augmentation'
 
   const statCards = [
     {
@@ -184,14 +201,14 @@ export default function ModelStats() {
     {
       icon: Layers,
       label: 'Architecture',
-      value: 'B4+Meta',
-      sub: 'EfficientNet-B4 backbone',
+      value: architectureLabel,
+      sub: hasLiveRuns ? 'Best run backbone' : 'No runs yet',
     },
     {
       icon: Cpu,
       label: 'TTA Passes',
-      value: '8×',
-      sub: 'Test-time augmentation',
+      value: ttaLabel,
+      sub: ttaSub,
     },
   ]
 
