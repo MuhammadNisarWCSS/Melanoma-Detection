@@ -22,12 +22,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY pyproject.toml README.md ./
 COPY src ./src
 
-# Install CPU torch, then the package, then re-pin CPU torch in case pip
-# resolved a default (CUDA) wheel from PyPI while installing dependencies.
+# Install matching CPU torch+torchvision first. After `pip install .`, transitive
+# deps (grad-cam/timm) may pull a PyPI torchvision built for a different torch —
+# that yields: RuntimeError: operator torchvision::nms does not exist.
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
+    && pip install --no-cache-dir torch torchvision \
+        --index-url https://download.pytorch.org/whl/cpu \
     && pip install --no-cache-dir . \
-    && pip install --no-cache-dir --force-reinstall --no-deps torch \
+    && pip install --no-cache-dir --force-reinstall torch torchvision \
         --index-url https://download.pytorch.org/whl/cpu
 
 COPY docker/api/entrypoint.sh /entrypoint.sh
