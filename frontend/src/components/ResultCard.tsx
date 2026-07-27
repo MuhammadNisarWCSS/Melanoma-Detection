@@ -236,7 +236,7 @@ export default function ResultCard({ result, imageSrc }: Props) {
                   />
                 </div>
                 <div className="px-5 py-2.5 text-[11px] text-slate-600">
-                  Highlighted regions indicate areas the model focused on for this prediction.
+                  Warm regions drove the model&apos;s {result.label_str} prediction.
                 </div>
               </motion.div>
             )}

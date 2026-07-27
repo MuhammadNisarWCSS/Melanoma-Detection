@@ -7,9 +7,9 @@ import cv2
 import numpy as np
 import torch
 import torch.nn as nn
-from pytorch_grad_cam import GradCAM
+from pytorch_grad_cam import HiResCAM
 from pytorch_grad_cam.utils.image import show_cam_on_image
-from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
+from pytorch_grad_cam.utils.model_targets import BinaryClassifierOutputTarget
 
 from cancer_detection.models.classifier import MelanomaClassifier
 
@@ -31,31 +31,25 @@ class _ImageOnlyWrapper(nn.Module):
         # Expand stored metadata to match the batch dimension of x
         meta = self.meta.expand(x.shape[0], -1)  # type: ignore[union-attr]
         logit = self.model(x, meta)
-        return logit.unsqueeze(-1)  # (B, 1) expected by ClassifierOutputTarget
+        return logit.unsqueeze(-1)  # (B, 1) for BinaryClassifierOutputTarget
 
 
 def _get_target_layer(model: MelanomaClassifier) -> nn.Module:
-    """Return the last convolutional layer of the backbone before global pooling.
+    """Return the last spatial layer of the backbone before global pooling.
 
-    Rationale: GradCAM needs the final spatial layer whose channel weights encode
-    the full discriminative representation.
-
-    - EfficientNet (timm): `conv_head` is the 1×1 conv that projects the last
-      block stage (≈160 ch) to 1792 ch just before AdaptiveAvgPool.  Targeting
-      `blocks[-1]` instead loses this learned projection and produces weak,
-      spurious heatmaps dominated by low-level activations (e.g. specular
-      highlights) rather than the lesion.
-    - ResNet (timm): `layer4[-1]` is the standard choice — the last residual
-      block before the final FC, with the same spatial resolution.
+    Prefer ``bn2`` (post-``conv_head`` BatchNorm) on EfficientNet: GradCAM-style
+    methods that average gradients over space are easily dominated by high-|A|
+    border cells in ``conv_head`` (systematic top-right hotspots). ``bn2``
+    activations are more class-calibrated. ResNet uses ``layer4[-1]``.
     """
     backbone = model.backbone
+    if hasattr(backbone, "bn2"):
+        return backbone.bn2  # EfficientNet (timm) — after conv_head 1×1
     if hasattr(backbone, "conv_head"):
-        return backbone.conv_head  # EfficientNet (timm)
+        return backbone.conv_head
     if hasattr(backbone, "layer4"):
         return backbone.layer4[-1]  # ResNet (timm)
     if hasattr(backbone, "blocks"):
-        # Generic fallback for other timm architectures that expose blocks but
-        # no dedicated final conv.
         return backbone.blocks[-1]
     raise ValueError(
         f"Cannot determine GradCAM target layer for backbone type {type(backbone).__name__}. "
@@ -84,6 +78,7 @@ class GradCAMWrapper:
         image_tensor: torch.Tensor,
         metadata_tensor: torch.Tensor,
         original_image: np.ndarray,
+        target_category: int = 1,
         image_size: int = 384,
     ) -> np.ndarray:
         """Compute GradCAM heatmap and overlay it on the original image.
@@ -92,6 +87,10 @@ class GradCAMWrapper:
             image_tensor:    Normalised image tensor, shape (C, H, W). Not batched.
             metadata_tensor: Encoded metadata tensor, shape (3,). Not batched.
             original_image:  Raw uint8 RGB numpy array before normalisation.
+            target_category: Predicted class to explain — 1=malignant, 0=benign.
+                             Must match the model's decision. Targeting the opposite
+                             class (always malignant) makes GradCAM's ReLU suppress
+                             the lesion and leave only corner/artifact noise.
             image_size:      Resize original_image to this before overlay.
 
         Returns:
@@ -103,11 +102,16 @@ class GradCAMWrapper:
         input_batch = image_tensor.unsqueeze(0)
         wrapper = wrapper.to(input_batch.device)
 
-        # GradCAM needs a live autograd graph; enable_grad guards against callers
-        # that wrap inference in torch.no_grad() / inference_mode().
+        # HiResCAM (not vanilla GradCAM): GradCAM globally averages gradients, so
+        # high-|activation| border cells dominate → systematic top-right hotspots
+        # even for malignant predictions. HiResCAM keeps spatial gradients
+        # (element-wise A⊙ReLU(∂y/∂A)), which suppresses those border artifacts.
+        # BinaryClassifierOutputTarget: category 1 → +logit, category 0 → -logit
+        # so we explain the *predicted* class (ReLU would otherwise zero lesion
+        # evidence on benign calls).
         with torch.enable_grad():
-            with GradCAM(model=wrapper, target_layers=[self._target_layer]) as cam:
-                targets = [ClassifierOutputTarget(0)]
+            with HiResCAM(model=wrapper, target_layers=[self._target_layer]) as cam:
+                targets = [BinaryClassifierOutputTarget(target_category)]
                 grayscale_cam = cam(
                     input_tensor=input_batch,
                     targets=targets,

@@ -120,10 +120,13 @@ class Predictor:
         }
 
         if return_gradcam:
+            # Explain the predicted class: for benign, gradients must flow through
+            # -logit so ReLU keeps lesion evidence instead of corner artifacts.
             heatmap = self.grad_cam.generate_heatmap(
                 image_tensor=base_image.to(self.device),
                 metadata_tensor=meta_tensor.squeeze(0),
                 original_image=image_array,
+                target_category=label,
             )
             result["gradcam_heatmap_b64"] = GradCAMWrapper.heatmap_to_base64(heatmap)
 
