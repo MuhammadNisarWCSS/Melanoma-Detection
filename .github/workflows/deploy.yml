@@ -47,6 +47,7 @@ jobs:
     runs-on: ubuntu-latest
 
     outputs:
+      ecr_registry: ${{ steps.meta.outputs.ecr_registry }}
       mlflow_image: ${{ steps.meta.outputs.mlflow_image }}
       api_image: ${{ steps.meta.outputs.api_image }}
       frontend_image: ${{ steps.meta.outputs.frontend_image }}
@@ -102,6 +103,7 @@ jobs:
           docker push "$FRONTEND_IMAGE:latest"
 
           {
+            echo "ecr_registry=$ECR_REGISTRY"
             echo "mlflow_image=$MLFLOW_IMAGE:latest"
             echo "api_image=$API_IMAGE:latest"
             echo "frontend_image=$FRONTEND_IMAGE:latest"
@@ -127,19 +129,21 @@ jobs:
 
       - name: Deploy stack over SSH
         uses: appleboy/ssh-action@v1.2.0
-        env:
-          MLFLOW_IMAGE: ${{ needs.build-and-push.outputs.mlflow_image }}
-          API_IMAGE: ${{ needs.build-and-push.outputs.api_image }}
-          FRONTEND_IMAGE: ${{ needs.build-and-push.outputs.frontend_image }}
-          AWS_REGION: ${{ secrets.AWS_REGION }}
-          MLFLOW_SEED_S3_URI: ${{ secrets.MLFLOW_SEED_S3_URI }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: MLFLOW_IMAGE,API_IMAGE,FRONTEND_IMAGE,AWS_REGION,MLFLOW_SEED_S3_URI
           script: |
-            set -eu
+            set -euo pipefail
+
+            # Interpolated by Actions before SSH — avoids appleboy `envs` drops
+            # that leave ECR_REGISTRY empty and make `docker login` hit Docker Hub.
+            ECR_REGISTRY='${{ needs.build-and-push.outputs.ecr_registry }}'
+            MLFLOW_IMAGE='${{ needs.build-and-push.outputs.mlflow_image }}'
+            API_IMAGE='${{ needs.build-and-push.outputs.api_image }}'
+            FRONTEND_IMAGE='${{ needs.build-and-push.outputs.frontend_image }}'
+            AWS_REGION='${{ secrets.AWS_REGION }}'
+            MLFLOW_SEED_S3_URI='${{ secrets.MLFLOW_SEED_S3_URI }}'
 
             cd "$HOME/cancer-detection"
             SEED_DIR="$HOME/mlflow-seed"
@@ -147,8 +151,19 @@ jobs:
             COMPOSE="docker compose --project-directory . -f docker/docker-compose.yml -f docker/docker-compose.ecr.yml -f docker/docker-compose.ec2.yml"
             export MLFLOW_IMAGE API_IMAGE FRONTEND_IMAGE
 
+            for required in ECR_REGISTRY MLFLOW_IMAGE API_IMAGE FRONTEND_IMAGE AWS_REGION; do
+              eval "val=\${$required:-}"
+              if [ -z "$val" ]; then
+                echo "ERROR: $required is empty — check build-and-push outputs / secrets"
+                exit 1
+              fi
+            done
+
+            # Drop any prior accidental Docker Hub login (AWS token as password).
+            docker logout 2>/dev/null || true
+
             aws ecr get-login-password --region "$AWS_REGION" \
-              | docker login --username AWS --password-stdin "${MLFLOW_IMAGE%%/*}"
+              | docker login --username AWS --password-stdin "$ECR_REGISTRY"
 
             docker volume create "$VOLUME" >/dev/null
 
