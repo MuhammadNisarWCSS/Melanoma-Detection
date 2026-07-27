@@ -85,7 +85,7 @@ jobs:
             -t "$API_IMAGE:$IMAGE_TAG" -t "$API_IMAGE:latest" .
           docker build -f frontend/Dockerfile \
             --build-arg VITE_API_URL=/api \
-            --build-arg VITE_MLFLOW_URL=/mlflow \
+            --build-arg VITE_MLFLOW_URL=/mlflow/ \
             -t "$FRONTEND_IMAGE:$IMAGE_TAG" -t "$FRONTEND_IMAGE:latest" \
             frontend
 

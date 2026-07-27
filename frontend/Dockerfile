@@ -10,7 +10,7 @@ COPY . .
 
 # Browser calls same-origin paths; nginx proxies to the other containers.
 ARG VITE_API_URL=/api
-ARG VITE_MLFLOW_URL=/mlflow
+ARG VITE_MLFLOW_URL=/mlflow/
 ENV VITE_API_URL=$VITE_API_URL \
     VITE_MLFLOW_URL=$VITE_MLFLOW_URL
 

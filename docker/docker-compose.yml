@@ -63,7 +63,7 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_API_URL: /api
-        VITE_MLFLOW_URL: /mlflow
+        VITE_MLFLOW_URL: /mlflow/
     container_name: melanoma-frontend
     ports:
       - "3000:80"
