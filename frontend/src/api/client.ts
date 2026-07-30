@@ -25,6 +25,8 @@ export interface PredictResponse {
   confidence: number
   tta_std: number
   threshold_used: number
+  out_of_distribution?: boolean | null
+  ood_distance?: number | null
   gradcam_heatmap_b64: string | null
 }
 
@@ -49,6 +51,14 @@ export async function predict(req: PredictRequest): Promise<PredictResponse> {
   return res.json()
 }
 
+export async function fetchTestMetrics(): Promise<TestMetrics> {
+  const res = await fetch(`${API_BASE}/test-metrics`, {
+    signal: AbortSignal.timeout(8000),
+  })
+  if (!res.ok) throw new Error(`test-metrics unavailable (${res.status})`)
+  return res.json()
+}
+
 export async function checkApiHealth(): Promise<{ status: string; model_loaded: boolean }> {
   const res = await fetch(`${API_BASE}/health`, {
     signal: AbortSignal.timeout(3000),
@@ -60,6 +70,7 @@ export async function fetchApiMetadata(): Promise<{
   threshold: number
   tta_passes: number
   device: string
+  ood_enabled: boolean
 }> {
   const res = await fetch(`${API_BASE}/metadata`, {
     signal: AbortSignal.timeout(3000),
@@ -79,9 +90,60 @@ export interface MLflowRun {
   val_f1: number | null
   /** Val loss at the peak-AUROC epoch (not the final epoch). */
   val_loss: number | null
+  /** Held-out test AUROC (only present if evaluate.py was run for this run). */
+  test_auroc: number | null
+  test_sensitivity: number | null
+  test_specificity: number | null
+  test_pauc: number | null
   status: string
   start_time: number
   duration_ms: number | null
+}
+
+// ─── Test metrics (full payload from /test-metrics) ──────────────────────────
+
+export interface CiBounds {
+  lo: number
+  hi: number
+}
+
+export interface TestMetrics {
+  auroc: number
+  pauc: number
+  sensitivity: number
+  specificity: number
+  ppv: number
+  npv: number
+  f1: number
+  ece: number
+  threshold: number
+  tp: number
+  fp: number
+  tn: number
+  fn: number
+  n_test: number
+  n_positive: number
+  prevalence: number
+  val_auroc: number | null
+  backbone: string | null
+  ci: {
+    auroc: CiBounds
+    pauc: CiBounds
+    sensitivity: CiBounds
+    specificity: CiBounds
+  }
+  roc: { fpr: number[]; tpr: number[] }
+  reliability: { mean_pred: number[]; mean_true: number[]; counts: number[] }
+  sweep: Array<{
+    threshold: number
+    sensitivity: number
+    specificity: number
+    ppv: number
+    tp: number
+    fp: number
+    tn: number
+    fn: number
+  }>
 }
 
 export interface MLflowStats {
@@ -98,6 +160,10 @@ interface MetricPoint {
 const VAL_AUROC_KEYS = ['val/auroc', 'val_auroc', 'validation_auroc'] as const
 const VAL_F1_KEYS = ['val/f1', 'val_f1', 'validation_f1'] as const
 const VAL_LOSS_KEYS = ['val/loss', 'val_loss'] as const
+const TEST_AUROC_KEYS = ['test/auroc', 'test_auroc'] as const
+const TEST_SENS_KEYS = ['test/sensitivity', 'test_sensitivity'] as const
+const TEST_SPEC_KEYS = ['test/specificity', 'test_specificity'] as const
+const TEST_PAUC_KEYS = ['test/pauc', 'test_pauc'] as const
 
 function extractMetrics(run: Record<string, unknown>): Record<string, number> {
   const data = (run.data as Record<string, unknown>) || {}
@@ -283,6 +349,10 @@ export async function fetchMLflowStats(): Promise<MLflowStats> {
         val_auroc: peak.val_auroc,
         val_f1: peak.val_f1,
         val_loss: peak.val_loss,
+        test_auroc: firstPresent(metrics, TEST_AUROC_KEYS),
+        test_sensitivity: firstPresent(metrics, TEST_SENS_KEYS),
+        test_specificity: firstPresent(metrics, TEST_SPEC_KEYS),
+        test_pauc: firstPresent(metrics, TEST_PAUC_KEYS),
         status: String(info.status || 'UNKNOWN'),
         start_time: startTime,
         duration_ms: endTime > 0 && startTime > 0 ? endTime - startTime : null,

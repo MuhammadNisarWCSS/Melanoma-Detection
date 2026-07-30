@@ -10,7 +10,9 @@ precision: "32"               # CPU-compatible; AMP not needed for smoke tests
 early_stopping_patience: 2
 deterministic: true
 focal_gamma: 2.0
-focal_alpha: 0.25
+focal_alpha: 0.5
+positive_sample_rate: 0.15
+target_sensitivity: 0.80      # matches training/default.yaml; smoke runs never reach calibration
 seed: 42
 experiment_name: melanoma-smoke
 mlflow_uri: "http://18.219.3.159:5000"  # same hosted server as full runs; separate experiment keeps smoke runs out of the way

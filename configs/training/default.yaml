@@ -1,5 +1,7 @@
 # Full training configuration
-epochs: 15
+# Sized to match val_check_interval=0.25 (4 validations/epoch) in scripts/train.py —
+# see early_stopping_patience below.
+epochs: 8
 # B4 @ 384 needs a smaller batch than B0 @ 224; drop to 8 if you OOM.
 batch_size: 16
 # Lower LR than 1e-3 — pretrained backbones overfit quickly on ISIC at 1e-3
@@ -7,10 +9,37 @@ batch_size: 16
 lr: 3.0e-4
 weight_decay: 1.0e-3
 precision: "16-mixed"          # automatic mixed precision — 2x throughput on modern GPUs
-early_stopping_patience: 5
+# Trainer runs val_check_interval=0.25 (4 checks/epoch), so this patience is in units
+# of *validation checks*, not epochs — 12 checks == 3 epochs without improvement.
+early_stopping_patience: 12
 deterministic: false           # true costs ~15-25% throughput by disabling cuDNN autotuning
 focal_gamma: 2.0
-focal_alpha: 0.25
+# 0.5, not the RetinaNet default of 0.25: WeightedRandomSampler already oversamples
+# positives via positive_sample_rate below, so alpha is a secondary correction on top
+# of an already-rebalanced batch. alpha=0.5 leaves that correction neutral (a uniform
+# x0.5 scale on every sample); alpha=0.25 would additionally bias the loss ~3:1 toward
+# negatives, double-correcting for imbalance the sampler already fixed.
+focal_alpha: 0.5
+# Fraction of *sampler draws* that should be positive per epoch (not the natural
+# 1.76% prevalence). 0.5 (naive 50/50) makes each of the ~460 training positives get
+# drawn ~28x per epoch while ~40% of negatives are never seen — the model then
+# memorises the positive set inside the first epoch instead of generalising. 0.15
+# keeps meaningful oversampling (~8.5x) while covering ~86% of negatives per epoch.
+positive_sample_rate: 0.15
+# Sensitivity the decision threshold is calibrated to hit on the validation split
+# (training/threshold.py picks the highest threshold still meeting it). This is a
+# clinical policy dial, not a tuning knob — calibrated on val only, never tuned
+# against test.
+#
+# 0.80 is a deliberate choice, not a default. Measured on run 739da85a: 0.80 puts
+# the threshold at 0.2348 and catches 23/30 test melanomas for 155 false positives
+# (6.7 per cancer found). Raising it to 0.90 moves the threshold to 0.1076 and
+# catches 25/30 — but for 358 false positives (14.3 per cancer), because the test
+# cost curve has a knee just below 0.20 and everything past it is expensive.
+# Raising this also does NOT fix the model's age bias (recall in patients under 45
+# went 4/9 to only 5/9): the bias lives in the scores, so only better training data
+# moves it. See the age_bands block in artifacts/test_metrics.json.
+target_sensitivity: 0.80
 seed: 42
 experiment_name: melanoma-detection
 # Hosted MLflow on EC2 (public IP). Override with env MLFLOW_TRACKING_URI

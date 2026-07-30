@@ -47,9 +47,7 @@ def resize_one(job: tuple[Path, Path, int, bool]) -> str:
             width, height = img.size
             scale = size / min(width, height)
             if scale < 1.0:
-                img = img.resize(
-                    (round(width * scale), round(height * scale)), Image.BICUBIC
-                )
+                img = img.resize((round(width * scale), round(height * scale)), Image.BICUBIC)
             img.save(dst, "JPEG", quality=92)
         return "ok"
     except Exception as exc:  # noqa: BLE001 - one bad file shouldn't kill the batch
@@ -58,9 +56,7 @@ def resize_one(job: tuple[Path, Path, int, bool]) -> str:
 
 def resize_all(src_dir: Path, dst_dir: Path, size: int, workers: int, overwrite: bool) -> None:
     if not src_dir.exists():
-        raise FileNotFoundError(
-            f"{src_dir} not found. Download and extract the ISIC data first."
-        )
+        raise FileNotFoundError(f"{src_dir} not found. Download and extract the ISIC data first.")
 
     sources = sorted(src_dir.glob("*.jpg"))
     if not sources:

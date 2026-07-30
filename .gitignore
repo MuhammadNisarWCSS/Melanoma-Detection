@@ -12,9 +12,14 @@ build/
 venv/
 env/
 
-# Project data (never commit raw medical images)
-data/raw/
-data/processed/
+# Project data (never commit raw medical images). Ignore contents, not the
+# directory itself — git.gitignore skips excluded dirs entirely, so `data/raw/`
+# alone (with no matching content pattern) would leave a fresh clone without
+# the directory at all.
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
 artifacts/*
 !artifacts/.gitkeep
 
@@ -22,14 +27,15 @@ artifacts/*
 serving_model/*
 !serving_model/.gitkeep
 
-# Keep placeholder files
-!data/raw/.gitkeep
-!data/processed/.gitkeep
-
 # MLflow local tracking store
 mlflow.db
 mlartifacts/
 mlflow-seed/
+
+# Lightning checkpoints (default_root_dir "1/<run_id>/checkpoints/") — named
+# explicitly, not just via *.ckpt below, so any future non-.ckpt file Lightning
+# drops there (hparams.yaml, metrics.csv) doesn't slip through.
+1/
 
 # Node / frontend
 node_modules/

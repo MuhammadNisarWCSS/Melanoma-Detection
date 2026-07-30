@@ -8,15 +8,18 @@ import torch.nn.functional as F
 class FocalLoss(nn.Module):
     """Binary Focal Loss for highly imbalanced classification.
 
-    Focal Loss down-weights easy negatives (confident correct predictions) so
-    gradient signal concentrates on hard, misclassified examples — critical for
-    the 1.76% positive rate in ISIC 2020.
+    The (1 - p_t)^gamma term down-weights *easy* examples of both classes (confident
+    correct predictions), concentrating gradient signal on hard, misclassified
+    examples — useful alongside the ~1.76% positive rate in ISIC 2020.
 
     Lin et al., 2017: https://arxiv.org/abs/1708.02002
 
     Args:
         gamma: Focusing parameter. 0 → standard BCE. 2 is the canonical default.
-        alpha: Prior probability of the positive class. Balances pos/neg in loss.
+        alpha: Class weight in [0, 1] applied to positive samples (negatives get
+            1 - alpha). This is a loss weight, not a prior — setting it to the
+            class's natural prevalence would bias the loss the *opposite* way
+            from what the name suggests. 0.5 is neutral (equal weight both ways).
         reduction: 'mean' | 'sum' | 'none'
     """
 

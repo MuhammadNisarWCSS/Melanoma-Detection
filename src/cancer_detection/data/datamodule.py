@@ -19,9 +19,11 @@ class ISICDataModule(LightningDataModule):
     """LightningDataModule for the ISIC 2020 melanoma dataset.
 
     Handles three-layer class imbalance mitigation:
-    1. WeightedRandomSampler over-samples the minority (malignant) class
-       so each batch sees ~positive_sample_rate positives.
-    2. The caller supplies Focal Loss (layer 2) and threshold calibration (layer 3).
+    1. WeightedRandomSampler over-samples the minority (malignant) class so each
+       batch sees ~``training_cfg.positive_sample_rate`` positives, rather than
+       the natural 1.76%.
+    2. The caller supplies Focal Loss.
+    3. The caller supplies threshold calibration.
 
     Expects processed CSVs produced by scripts/prepare_data.py:
         data/processed/train.csv, val.csv, test.csv
@@ -67,7 +69,14 @@ class ISICDataModule(LightningDataModule):
         if pos_count == 0 or neg_count == 0:
             weights = np.ones(len(labels), dtype=np.float64)
         else:
-            class_weights = np.array([1.0 / neg_count, 1.0 / pos_count])
+            # target is the fraction of *draws* that should be positive per epoch.
+            # 0.5 (naive 50/50 balancing) makes WeightedRandomSampler draw each of the
+            # ~460 positives ~28x per epoch while covering only ~60% of negatives —
+            # the model then memorises the positive set within the first epoch. A
+            # lower target (default 0.15) keeps meaningful oversampling while still
+            # covering most of the negative class each epoch.
+            target = float(self.training_cfg.get("positive_sample_rate", 0.15))
+            class_weights = np.array([(1.0 - target) / neg_count, target / pos_count])
             weights = class_weights[labels]
         sample_weights = torch.from_numpy(weights).double()
         return WeightedRandomSampler(

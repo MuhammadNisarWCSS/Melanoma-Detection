@@ -2,17 +2,22 @@ from __future__ import annotations
 
 import asyncio
 import io
+import json
 import os
+import tempfile
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
+from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from PIL import Image
 
-from cancer_detection.serving.model_uri import resolve_model_uri
+from cancer_detection.serving.model_uri import ensure_tracking_uri, resolve_model_uri
 from cancer_detection.serving.predictor import Predictor
 from cancer_detection.serving.schemas import PredictResponse
 from cancer_detection.utils.logger import configure_logging, get_logger
@@ -22,6 +27,10 @@ configure_logging(name="api")
 logger = get_logger(__name__)
 
 predictor: Predictor | None = None
+
+# In-memory cache for test metrics — populated lazily on first request.
+_test_metrics_cache: dict[str, Any] | None = None
+_LOCAL_TEST_METRICS = Path(os.environ.get("TEST_METRICS_PATH", "artifacts/test_metrics.json"))
 
 
 def _load_predictor() -> None:
@@ -85,13 +94,18 @@ app = FastAPI(
     ),
     version="1.0.0",
     lifespan=lifespan,
-    root_path="/api"
+    root_path="/api",
 )
+
+# Same-origin in production (nginx proxies /api on the frontend's own port), so this
+# only needs to cover local dev (Vite on :3000) and the standalone hosted frontend.
+_default_origins = "http://localhost:3000,http://18.219.3.159:3000"
+_cors_origins = os.environ.get("CORS_ORIGINS", _default_origins).split(",")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
+    allow_origins=_cors_origins,
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
@@ -108,6 +122,76 @@ async def health() -> dict:
     }
 
 
+@app.get("/test-metrics", tags=["System"])
+async def test_metrics() -> JSONResponse:
+    """Return held-out test metrics for the champion model.
+
+    Resolution order:
+    1. ``artifacts/test_metrics.json`` on disk (local dev or baked into the image)
+    2. ``test_metrics.json`` artifact from the highest-val-AUROC MLflow run
+
+    The full payload includes AUROC, sensitivity/specificity with bootstrap CIs,
+    ECE, ROC curve coordinates, reliability diagram data, and a threshold sweep
+    for the interactive slider.  Returns 503 when unavailable.
+    """
+    global _test_metrics_cache
+
+    if _test_metrics_cache is not None:
+        return JSONResponse(_test_metrics_cache)
+
+    # 1 — local file
+    if _LOCAL_TEST_METRICS.exists():
+        try:
+            data = json.loads(_LOCAL_TEST_METRICS.read_text(encoding="utf-8"))
+            _test_metrics_cache = data
+            logger.info("Served test metrics from local file", path=str(_LOCAL_TEST_METRICS))
+            return JSONResponse(data)
+        except Exception as exc:
+            logger.warning("Could not read local test_metrics.json", error=str(exc))
+
+    # 2 — MLflow artifact download
+    try:
+        tracking_uri = ensure_tracking_uri()
+        import mlflow
+        from mlflow.tracking import MlflowClient
+
+        client = MlflowClient(tracking_uri=tracking_uri)
+        experiments = [e for e in client.search_experiments() if e.lifecycle_stage == "active"]
+        exp_ids = [e.experiment_id for e in experiments]
+
+        runs = client.search_runs(
+            experiment_ids=exp_ids,
+            filter_string="attributes.status = 'FINISHED'",
+            order_by=["metrics.`val/auroc` DESC"],
+            max_results=50,
+        )
+
+        for run in runs:
+            run_id = run.info.run_id
+            try:
+                artifacts = client.list_artifacts(run_id)
+                has_json = any(a.path == "test_metrics.json" for a in artifacts)
+                if not has_json:
+                    continue
+
+                with tempfile.TemporaryDirectory() as tmp:
+                    local_path = mlflow.artifacts.download_artifacts(
+                        artifact_uri=f"runs:/{run_id}/test_metrics.json",
+                        dst_path=tmp,
+                    )
+                    data = json.loads(Path(local_path).read_text(encoding="utf-8"))
+                    _test_metrics_cache = data
+                    logger.info("Served test metrics from MLflow", run_id=run_id)
+                    return JSONResponse(data)
+            except Exception as exc:
+                logger.debug("Skipping run for test metrics", run_id=run_id, error=str(exc))
+                continue
+    except Exception as exc:
+        logger.warning("Could not fetch test metrics from MLflow", error=str(exc))
+
+    raise HTTPException(status_code=503, detail="Test metrics not available")
+
+
 @app.get("/metadata", tags=["System"])
 async def metadata() -> dict:
     """Return model and threshold metadata."""
@@ -117,6 +201,7 @@ async def metadata() -> dict:
         "threshold": predictor.threshold,
         "tta_passes": predictor.tta_n_passes,
         "device": str(predictor.device),
+        "ood_enabled": predictor.ood_enabled,
     }
 
 
@@ -164,36 +249,3 @@ async def predict(
         raise HTTPException(status_code=500, detail=f"Prediction error: {exc}") from exc
 
     return PredictResponse(**result)
-
-
-@app.post("/predict/batch", tags=["Prediction"])
-async def predict_batch(
-    images: list[UploadFile] = File(...),
-    age_approx: float = Form(50.0),
-    sex: str = Form("unknown"),
-    anatom_site: str = Form("unknown"),
-) -> dict:
-    """Classify a list of dermoscopy images with shared metadata.
-
-    Note: In production, each image would carry its own metadata. This endpoint
-    demonstrates batch throughput for the same patient / imaging session.
-    """
-    if predictor is None:
-        raise HTTPException(status_code=503, detail="Model not loaded")
-
-    metadata_row = pd.Series(
-        {
-            "age_approx": age_approx,
-            "sex": sex.strip().lower(),
-            "anatom_site_general_challenge": anatom_site.strip().lower(),
-        }
-    )
-    results = []
-    for img_file in images:
-        raw = await img_file.read()
-        pil_img = Image.open(io.BytesIO(raw)).convert("RGB")
-        image_array = np.array(pil_img)
-        result = predictor.predict(image_array, metadata_row, return_gradcam=False)
-        results.append(result)
-
-    return {"predictions": results, "count": len(results)}

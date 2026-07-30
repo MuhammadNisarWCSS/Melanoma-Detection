@@ -59,9 +59,7 @@ def resolve_model_uri(explicit: str | None = None) -> str:
 
 def _best_val_auroc_run_model_uri(client: MlflowClient) -> str | None:
     """Pick the finished run with highest ``val/auroc`` that has a model artifact."""
-    experiments = [
-        exp for exp in client.search_experiments() if exp.lifecycle_stage == "active"
-    ]
+    experiments = [exp for exp in client.search_experiments() if exp.lifecycle_stage == "active"]
     experiment_ids = [exp.experiment_id for exp in experiments]
     if not experiment_ids:
         return None
@@ -120,6 +118,4 @@ def _has_model_artifact(client: MlflowClient, run_id: str) -> bool:
         nested = client.list_artifacts(run_id, "model")
     except Exception:
         return False
-    return bool(nested) and any(
-        a.path == "model" or a.path.startswith("model/") for a in nested
-    )
+    return bool(nested) and any(a.path == "model" or a.path.startswith("model/") for a in nested)

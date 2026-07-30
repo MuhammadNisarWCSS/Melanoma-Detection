@@ -91,11 +91,7 @@ def test_skips_runs_without_model_artifact(monkeypatch: pytest.MonkeyPatch) -> N
 
     def list_artifacts(run_id: str, path: str | None = None):
         if path == "model":
-            return (
-                [SimpleNamespace(path="model/MLmodel")]
-                if run_id == "has_model"
-                else []
-            )
+            return [SimpleNamespace(path="model/MLmodel")] if run_id == "has_model" else []
         if run_id == "has_model":
             return [SimpleNamespace(path="model")]
         return []

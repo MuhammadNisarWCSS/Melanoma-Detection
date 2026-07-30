@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import structlog
@@ -50,6 +50,14 @@ class _Tee:
     def isatty(self) -> bool:
         return bool(getattr(self._console, "isatty", lambda: False)())
 
+    @property
+    def encoding(self) -> str | None:
+        return getattr(self._console, "encoding", None)
+
+    @property
+    def errors(self) -> str | None:
+        return getattr(self._console, "errors", None)
+
     def reconfigure(self, **kwargs: object) -> None:
         for stream in (self._console, self._log_file):
             reconfigure = getattr(stream, "reconfigure", None)
@@ -68,7 +76,7 @@ def _install_stdio_tee(log_path: Path) -> None:
 
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_fp = open(log_path, "a", encoding="utf-8", errors="replace")  # noqa: SIM115
-    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    stamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
     log_fp.write(f"\n===== session start {stamp} =====\n")
     log_fp.flush()
 

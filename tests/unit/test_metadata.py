@@ -33,7 +33,9 @@ def test_known_values(encoder: MetadataEncoder) -> None:
 
 
 def test_missing_age(encoder: MetadataEncoder) -> None:
-    row = pd.Series({"age_approx": np.nan, "sex": "female", "anatom_site_general_challenge": "torso"})
+    row = pd.Series(
+        {"age_approx": np.nan, "sex": "female", "anatom_site_general_challenge": "torso"}
+    )
     t = encoder.encode(row)
     # NaN age → standardised mean → 0.0
     assert abs(t[0].item()) < 1e-5
@@ -47,13 +49,17 @@ def test_unknown_sex(encoder: MetadataEncoder) -> None:
 
 
 def test_unknown_site(encoder: MetadataEncoder) -> None:
-    row = pd.Series({"age_approx": 40.0, "sex": "male", "anatom_site_general_challenge": "unknown_region"})
+    row = pd.Series(
+        {"age_approx": 40.0, "sex": "male", "anatom_site_general_challenge": "unknown_region"}
+    )
     t = encoder.encode(row)
     # Unknown site → 0.5 sentinel
     assert abs(t[2].item() - 0.5) < 1e-5
 
 
-def test_values_in_reasonable_range(encoder: MetadataEncoder, sample_metadata_row: pd.Series) -> None:
+def test_values_in_reasonable_range(
+    encoder: MetadataEncoder, sample_metadata_row: pd.Series
+) -> None:
     t = encoder.encode(sample_metadata_row)
     # age (standardised): typical range ~ [-3, 3]
     assert -5 < t[0].item() < 5

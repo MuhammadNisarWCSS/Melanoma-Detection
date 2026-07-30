@@ -81,7 +81,7 @@ export default function AnalysisTool() {
   const [image, setImage] = useState<File | null>(null)
   const [preview, setPreview] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
-  const [age, setAge] = useState(45)
+  const [age, setAge] = useState(50)
   const [sex, setSex] = useState<string>('unknown')
   const [site, setSite] = useState<string>('unknown')
   const [loading, setLoading] = useState(false)
@@ -262,7 +262,7 @@ export default function AnalysisTool() {
                 />
                 <div className="mt-1 flex justify-between font-mono text-[10px] text-slate-700">
                   <span>0</span>
-                  <span>45</span>
+                  <span>50</span>
                   <span>90</span>
                 </div>
               </div>

@@ -82,7 +82,7 @@ class MelanomaClassifier(nn.Module):
         Returns:
             (B,) raw logits
         """
-        img_feat = self.backbone(image)           # (B, img_feature_dim)
-        meta_feat = self.meta_branch(metadata)    # (B, meta_output_dim)
+        img_feat = self.backbone(image)  # (B, img_feature_dim)
+        meta_feat = self.meta_branch(metadata)  # (B, meta_output_dim)
         fused = torch.cat([img_feat, meta_feat], dim=1)
         return self.fusion_head(fused).squeeze(1)  # (B,)

@@ -1,5 +1,4 @@
 # ISIC 2020 dataset configuration
-raw_dir: data/raw
 processed_dir: data/processed
 # Pre-resized cache built by scripts/resize_images.py. The raw ISIC JPEGs run up to
 # 6000x4000, and decoding them on every epoch starves the GPU. Point this at
@@ -12,6 +11,6 @@ image_size: 384   # EfficientNet-B4 native-ish resolution; use 224 + jpeg_256 fo
 # Against the pre-resized cache a single process sustains ~320 samples/s, which is
 # enough to keep the GPU fed; raise this only on Linux.
 num_workers: 0
-val_split: 0.15
-test_split: 0.05
-random_state: 42
+# train/val/test split fractions and seed live in scripts/prepare_data.py's own
+# argparse defaults (--val-split, --test-split, --seed), not here — this file only
+# configures how training/evaluation reads the already-split CSVs.

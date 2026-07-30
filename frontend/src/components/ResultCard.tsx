@@ -108,6 +108,7 @@ export default function ResultCard({ result, imageSrc }: Props) {
   const [showGradcam, setShowGradcam] = useState(true)
   const isMalignant = result.label === 1
   const isHighUncertainty = result.tta_std > 0.1
+  const isOod = Boolean(result.out_of_distribution)
   const confidence = result.confidence
   const pct = Math.round(result.probability * 100)
 
@@ -118,37 +119,75 @@ export default function ResultCard({ result, imageSrc }: Props) {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.45, ease: 'easeOut' }}
     >
+      {/* ── OOD Warning (takes precedence over a confident benign/malignant banner) ── */}
+      {isOod && (
+        <motion.div
+          initial={{ opacity: 0, scale: 0.97 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="flex items-start gap-3 rounded-2xl border border-amber-400/30 bg-amber-400/8 p-5"
+        >
+          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-400" />
+          <div>
+            <div className="text-[15px] font-semibold text-amber-300">
+              Image does not look like a dermoscopy photo
+            </div>
+            <p className="mt-1 text-[13px] leading-relaxed text-slate-400">
+              This upload sits outside the model&apos;s training distribution (contact
+              dermatoscope images from ISIC 2020). The {result.label_str} label below is
+              unreliable — clinical photos, screenshots, and heavily recompressed web
+              images are outside the intended use.
+              {result.ood_distance != null && (
+                <>
+                  {' '}
+                  <span className="font-mono text-slate-500">
+                    distance={result.ood_distance.toFixed(1)}
+                  </span>
+                </>
+              )}
+            </p>
+          </div>
+        </motion.div>
+      )}
+
       {/* ── Diagnosis Banner ── */}
       <div
         className={`flex items-center gap-4 rounded-2xl border p-5 ${
-          isMalignant
-            ? 'border-red-500/25 bg-red-500/6'
-            : 'border-emerald-500/25 bg-emerald-500/6'
+          isOod
+            ? 'border-ink-500/40 bg-ink-800/60 opacity-70'
+            : isMalignant
+              ? 'border-red-500/25 bg-red-500/6'
+              : 'border-emerald-500/25 bg-emerald-500/6'
         }`}
       >
         <div
           className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border ${
-            isMalignant ? 'border-red-500/30 bg-red-500/10' : 'border-emerald-500/30 bg-emerald-500/10'
+            isOod
+              ? 'border-ink-500/40 bg-ink-700/40'
+              : isMalignant
+                ? 'border-red-500/30 bg-red-500/10'
+                : 'border-emerald-500/30 bg-emerald-500/10'
           }`}
         >
           {isMalignant ? (
-            <AlertTriangle className="h-6 w-6 text-red-400" />
+            <AlertTriangle className={`h-6 w-6 ${isOod ? 'text-slate-500' : 'text-red-400'}`} />
           ) : (
-            <CheckCircle className="h-6 w-6 text-emerald-400" />
+            <CheckCircle className={`h-6 w-6 ${isOod ? 'text-slate-500' : 'text-emerald-400'}`} />
           )}
         </div>
         <div>
           <div
             className={`text-[22px] font-bold uppercase tracking-[0.1em] ${
-              isMalignant ? 'text-red-400' : 'text-emerald-400'
+              isOod ? 'text-slate-400' : isMalignant ? 'text-red-400' : 'text-emerald-400'
             }`}
           >
             {result.label_str}
           </div>
           <div className="mt-0.5 text-[13px] text-slate-400">
-            {isMalignant
-              ? 'Malignant features detected — clinical review recommended'
-              : 'No significant malignant features identified'}
+            {isOod
+              ? 'Label shown for transparency — do not act on it'
+              : isMalignant
+                ? 'Malignant features detected — clinical review recommended'
+                : 'No significant malignant features identified'}
           </div>
         </div>
         <div className="ml-auto text-right hidden sm:block">

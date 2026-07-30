@@ -40,6 +40,8 @@ _MOCK_RESULT = {
     "confidence": 0.30,
     "tta_std": 0.04,
     "threshold_used": 0.5,
+    "out_of_distribution": False,
+    "ood_distance": 12.5,
     "gradcam_heatmap_b64": "iVBORw0KGgo=",
 }
 
@@ -123,23 +125,3 @@ def test_predict_invalid_image_returns_400(client: TestClient) -> None:
             data={"age_approx": "50.0"},
         )
     assert response.status_code == 400
-
-
-def test_batch_predict_returns_list(client: TestClient, jpeg_bytes: bytes) -> None:
-    mock_predictor = MagicMock()
-    mock_predictor.predict.return_value = {**_MOCK_RESULT, "gradcam_heatmap_b64": None}
-
-    with patch("cancer_detection.serving.api.predictor", mock_predictor):
-        response = client.post(
-            "/predict/batch",
-            files=[
-                ("images", ("img1.jpg", jpeg_bytes, "image/jpeg")),
-                ("images", ("img2.jpg", jpeg_bytes, "image/jpeg")),
-            ],
-            data={"age_approx": "50.0", "sex": "male", "anatom_site": "torso"},
-        )
-
-    assert response.status_code == 200
-    data = response.json()
-    assert "predictions" in data
-    assert data["count"] == 2

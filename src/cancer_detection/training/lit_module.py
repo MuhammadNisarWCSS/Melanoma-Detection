@@ -19,7 +19,8 @@ class MelanomaLitModule(LightningModule):
 
     Wraps MelanomaClassifier with:
     - FocalLoss training objective
-    - AdamW optimizer + CosineAnnealingLR scheduler
+    - AdamW optimizer + linear-warmup/cosine-decay LR schedule (step-interval,
+      sized by the actual number of optimizer steps in the run)
     - Epoch-level AUROC and F1 tracking via torchmetrics
     - Full clinical metric suite on the test split, evaluated at ``test_threshold``
     - Structured logging to the active Lightning logger (MLflow)
@@ -67,7 +68,6 @@ class MelanomaLitModule(LightningModule):
 
         self._lr = float(training_cfg.lr)
         self._weight_decay = float(training_cfg.weight_decay)
-        self._epochs = int(training_cfg.epochs)
 
     # ------------------------------------------------------------------
     # Forward
@@ -82,7 +82,10 @@ class MelanomaLitModule(LightningModule):
         images, metadata, labels = batch
         logits = self(images, metadata)
         loss = self.criterion(logits, labels)
-        probs = torch.sigmoid(logits)
+        # "16-mixed" precision yields half-precision probabilities; fp16 has only
+        # ~3 significant digits, which collapses many predictions into ties and
+        # perturbs AUROC across a few thousand samples. Cast up before the metric.
+        probs = torch.sigmoid(logits).detach().float()
 
         self.train_auroc.update(probs, labels.int())
         self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True)
@@ -99,7 +102,7 @@ class MelanomaLitModule(LightningModule):
         images, metadata, labels = batch
         logits = self(images, metadata)
         loss = self.criterion(logits, labels)
-        probs = torch.sigmoid(logits)
+        probs = torch.sigmoid(logits).detach().float()
 
         self.val_auroc.update(probs, labels.int())
         self.val_f1.update(probs, labels.int())
@@ -156,20 +159,32 @@ class MelanomaLitModule(LightningModule):
     # ------------------------------------------------------------------
     def configure_optimizers(self) -> dict:  # type: ignore[override]
         optimizer = torch.optim.AdamW(
-            self.model.parameters(),
+            self.parameters(),
             lr=self._lr,
             weight_decay=self._weight_decay,
         )
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer,
-            T_max=self._epochs,
-            eta_min=1e-6,
+
+        # Step-interval schedule sized by the *actual* number of optimizer steps in
+        # the run, not epochs. An epoch-interval CosineAnnealingLR(T_max=max_epochs)
+        # only anneals on schedule if training runs to max_epochs; early stopping
+        # cutting the run short left the LR barely decayed (~35%) in a previous run,
+        # so the anneal phase that lets later epochs beat epoch 1 never happened.
+        total_steps = int(self.trainer.estimated_stepping_batches)
+        warmup_steps = max(1, int(0.03 * total_steps))
+        warmup = torch.optim.lr_scheduler.LinearLR(
+            optimizer, start_factor=0.1, total_iters=warmup_steps
+        )
+        cosine = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=max(1, total_steps - warmup_steps), eta_min=1e-6
+        )
+        scheduler = torch.optim.lr_scheduler.SequentialLR(
+            optimizer, schedulers=[warmup, cosine], milestones=[warmup_steps]
         )
         return {
             "optimizer": optimizer,
             "lr_scheduler": {
                 "scheduler": scheduler,
-                "interval": "epoch",
-                "monitor": "val/auroc",
+                "interval": "step",
+                "frequency": 1,
             },
         }

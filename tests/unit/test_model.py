@@ -10,9 +10,7 @@ import pytest
 import torch
 
 from cancer_detection.models.classifier import MelanomaClassifier, MetadataMLP
-from cancer_detection.models.registry import get_model, list_models
 from cancer_detection.training.losses import FocalLoss
-
 
 FAST_BACKBONE = "efficientnet_b0"
 
@@ -131,20 +129,54 @@ def test_focal_loss_reduction_none(model: MelanomaClassifier, batch: tuple) -> N
     assert loss.shape == (4,)
 
 
-# ---------------------------------------------------------------------------
-# Registry
-# ---------------------------------------------------------------------------
-def test_list_models() -> None:
-    models = list_models()
-    assert "efficientnet_b4" in models
-    assert "resnet50" in models
+def test_focal_loss_gamma_zero_matches_weighted_bce() -> None:
+    """gamma=0 removes the focusing term; only the alpha class-weight remains."""
+    logits = torch.tensor([2.0, -1.5, 0.3, -3.0])
+    labels = torch.tensor([1.0, 0.0, 1.0, 0.0])
+    alpha = 0.7
+
+    focal = FocalLoss(gamma=0.0, alpha=alpha, reduction="none")(logits, labels)
+
+    bce = torch.nn.functional.binary_cross_entropy_with_logits(logits, labels, reduction="none")
+    alpha_t = alpha * labels + (1.0 - alpha) * (1.0 - labels)
+    expected = alpha_t * bce
+
+    assert torch.allclose(focal, expected, atol=1e-6)
 
 
-def test_get_model_returns_classifier() -> None:
-    m = get_model("efficientnet_b0", pretrained=False)
-    assert isinstance(m, MelanomaClassifier)
+def test_focal_loss_alpha_weights_positives_not_negatives() -> None:
+    """alpha should scale the *positive*-class loss; alpha=0 zeroes it out entirely."""
+    logits = torch.tensor([1.0, -1.0])
+    labels_pos = torch.tensor([1.0, 0.0])  # first sample positive
+    labels_neg = torch.tensor([0.0, 1.0])  # first sample negative (mirrored)
+
+    loss_pos = FocalLoss(gamma=2.0, alpha=0.0, reduction="none")(logits, labels_pos)
+    loss_neg = FocalLoss(gamma=2.0, alpha=0.0, reduction="none")(logits, labels_neg)
+
+    # alpha=0 should zero the loss on the positive-labelled sample, not the negative one.
+    assert loss_pos[0] == pytest.approx(0.0, abs=1e-6)
+    assert loss_neg[0] > 0.0
 
 
-def test_get_model_unknown_raises() -> None:
-    with pytest.raises(KeyError, match="Unknown model"):
-        get_model("nonexistent_model_xyz")
+def test_focal_loss_alpha_half_is_uniform_scale() -> None:
+    """alpha=0.5 should scale every sample's loss identically, regardless of label."""
+    logits = torch.tensor([2.0, -2.0, 0.5, -0.5])
+    labels = torch.tensor([1.0, 0.0, 1.0, 0.0])
+
+    half = FocalLoss(gamma=2.0, alpha=0.5, reduction="none")(logits, labels)
+
+    # alpha_t is 0.5 for every sample when alpha=0.5, regardless of label — i.e.
+    # exactly half of the un-weighted focal term (gamma-only, no class weight).
+    bce = torch.nn.functional.binary_cross_entropy_with_logits(logits, labels, reduction="none")
+    pt = torch.exp(-bce)
+    unweighted_focal = (1.0 - pt) ** 2.0 * bce
+
+    assert torch.allclose(half, unweighted_focal * 0.5, atol=1e-6)
+
+
+def test_focal_loss_no_nan_at_extreme_logits() -> None:
+    """BCEWithLogits-based formulation must stay finite at large-magnitude logits."""
+    logits = torch.tensor([50.0, -50.0, 50.0, -50.0])
+    labels = torch.tensor([1.0, 0.0, 0.0, 1.0])  # includes confidently-wrong cases
+    loss = FocalLoss(gamma=2.0, alpha=0.5, reduction="none")(logits, labels)
+    assert torch.isfinite(loss).all()

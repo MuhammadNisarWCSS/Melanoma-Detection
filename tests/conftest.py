@@ -7,6 +7,7 @@ entire test suite runs in CI without a Kaggle download.
 from __future__ import annotations
 
 import io
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -66,9 +67,8 @@ def sample_metadata_row(sample_df: pd.DataFrame) -> pd.Series:
 
 
 @pytest.fixture
-def sample_image_dir(tmp_path: "Path", sample_df: pd.DataFrame) -> "Path":
+def sample_image_dir(tmp_path: Path, sample_df: pd.DataFrame) -> Path:
     """Temp directory populated with synthetic JPEG files for each row in sample_df."""
-    from pathlib import Path
 
     img_dir: Path = tmp_path  # type: ignore[assignment]
     rng = np.random.default_rng(99)

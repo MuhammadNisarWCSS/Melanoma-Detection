@@ -1,6 +1,7 @@
 import Navbar from './components/Navbar'
 import Hero from './components/Hero'
 import AnalysisTool from './components/AnalysisTool'
+import TestMetricsSection from './components/TestMetrics'
 import ModelStats from './components/ModelStats'
 import Footer from './components/Footer'
 
@@ -11,6 +12,7 @@ export default function App() {
       <main>
         <Hero />
         <AnalysisTool />
+        <TestMetricsSection />
         <ModelStats />
       </main>
       <Footer />

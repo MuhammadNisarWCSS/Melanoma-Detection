@@ -24,7 +24,7 @@ import shutil
 import sqlite3
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -48,7 +48,7 @@ def _package() -> tuple[int, int, int]:
     shutil.copy2(SRC_DB, dest_db)
     shutil.copytree(SRC_ARTIFACTS, dest_artifacts)
 
-    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    now_ms = int(datetime.now(UTC).timestamp() * 1000)
     with sqlite3.connect(dest_db) as conn:
         cur = conn.execute(
             "UPDATE runs SET status=?, end_time=? WHERE status='RUNNING'",

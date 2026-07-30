@@ -5,6 +5,7 @@ import { fetchApiMetadata, fetchMLflowStats } from '../api/client'
 
 interface LiveStats {
   auroc: string
+  aurocIsTest: boolean
   tta: string
   architecture: string
 }
@@ -12,6 +13,7 @@ interface LiveStats {
 function useLiveHeroStats(): LiveStats {
   const [stats, setStats] = useState<LiveStats>({
     auroc: '0.000',
+    aurocIsTest: false,
     tta: '0×',
     architecture: '—',
   })
@@ -25,13 +27,22 @@ function useLiveHeroStats(): LiveStats {
         setStats((prev) => {
           const next = { ...prev }
           if (mlflowResult.status === 'fulfilled') {
-            const { best_auroc, runs } = mlflowResult.value
-            if (best_auroc != null) next.auroc = best_auroc.toFixed(3)
-            if (runs.length > 0 && runs[0].backbone && runs[0].backbone !== 'unknown') {
-              // Condense "efficientnet_b4" → "B4+Meta" style short label
-              const raw = runs[0].backbone.toLowerCase()
-              const match = raw.match(/b(\d+)/)
-              next.architecture = match ? `B${match[1]}+Meta` : runs[0].backbone
+            const { runs } = mlflowResult.value
+            if (runs.length > 0) {
+              // Prefer test AUROC from the champion (best-val) run; fall back to val
+              // AUROC — and track which one, so the label below never claims a val
+              // number is a held-out test result.
+              const champion = runs[0]
+              const auroc = champion.test_auroc ?? champion.val_auroc
+              if (auroc != null) {
+                next.auroc = auroc.toFixed(3)
+                next.aurocIsTest = champion.test_auroc != null
+              }
+              if (champion.backbone && champion.backbone !== 'unknown') {
+                const raw = champion.backbone.toLowerCase()
+                const match = raw.match(/b(\d+)/)
+                next.architecture = match ? `B${match[1]}+Meta` : champion.backbone
+              }
             }
           }
           if (metaResult.status === 'fulfilled') {
@@ -52,7 +63,11 @@ export default function Hero() {
   const liveStats = useLiveHeroStats()
 
   const STATS = [
-    { value: liveStats.auroc, unit: 'AUROC', label: 'Validation score' },
+    {
+      value: liveStats.auroc,
+      unit: 'AUROC',
+      label: liveStats.aurocIsTest ? 'Held-out test AUROC' : 'Validation AUROC',
+    },
     { value: liveStats.tta, unit: 'TTA', label: 'Test-time augmentation' },
     { value: liveStats.architecture, unit: '', label: 'Architecture' },
     { value: '384²', unit: 'px', label: 'Input resolution' },

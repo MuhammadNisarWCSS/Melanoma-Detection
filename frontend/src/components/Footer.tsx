@@ -18,6 +18,14 @@ export default function Footer() {
           <p className="text-[11px] text-slate-700">
             For research use only — not intended for clinical diagnosis
           </p>
+          <a
+            href="https://github.com/MuhammadNisarWCSS/Melanoma-Detection"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[11px] text-slate-700 hover:text-teal-400 transition-colors"
+          >
+            View on GitHub
+          </a>
         </div>
       </div>
     </footer>

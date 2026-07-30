@@ -17,7 +17,6 @@ Examples:
 from __future__ import annotations
 
 import atexit
-import json
 import os
 import sys
 from pathlib import Path
@@ -30,8 +29,11 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
+from datetime import UTC
+
 import hydra
 import mlflow
+import pandas as pd
 import torch
 from lightning.pytorch import Trainer
 from lightning.pytorch.callbacks import EarlyStopping, LearningRateMonitor, ModelCheckpoint
@@ -39,8 +41,9 @@ from lightning.pytorch.loggers import MLFlowLogger
 from omegaconf import DictConfig, OmegaConf
 
 from cancer_detection.data.datamodule import ISICDataModule
-from cancer_detection.training.callbacks import ThresholdCalibrationCallback, log_peak_val_metrics
+from cancer_detection.training.callbacks import log_peak_val_metrics
 from cancer_detection.training.lit_module import MelanomaLitModule
+from cancer_detection.training.threshold import calibrate_threshold
 from cancer_detection.utils.logger import configure_logging, get_logger
 from cancer_detection.utils.seed import set_seed
 
@@ -81,9 +84,9 @@ def _register_run_guardian(run_id: str) -> dict[str, bool]:
             return
         try:
             import sqlite3
-            from datetime import datetime, timezone
+            from datetime import datetime
 
-            now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+            now_ms = int(datetime.now(UTC).timestamp() * 1000)
             with sqlite3.connect(str(_MLFLOW_DB), timeout=10) as conn:
                 conn.execute(
                     "UPDATE runs SET status=?, end_time=? WHERE run_uuid=? AND status='RUNNING'",
@@ -108,7 +111,8 @@ def train(cfg: DictConfig) -> float:
     Returns:
         Best validation AUROC (useful for Hydra multirun comparisons).
     """
-    set_seed(cfg.training.seed)
+    deterministic: bool = cfg.training.get("deterministic", True)
+    set_seed(cfg.training.seed, deterministic=deterministic)
     logger.info("Config", cfg=OmegaConf.to_yaml(cfg))
 
     fast_dev_run: bool = cfg.training.get("fast_dev_run", False)
@@ -134,7 +138,10 @@ def train(cfg: DictConfig) -> float:
     logger.info("Loading data splits and building data module …")
     datamodule = ISICDataModule(cfg.data, cfg.training)
 
-    logger.info("Building model — backbone weights will be downloaded if not cached …", backbone=cfg.model.backbone)
+    logger.info(
+        "Building model — backbone weights will be downloaded if not cached …",
+        backbone=cfg.model.backbone,
+    )
     lit_module = MelanomaLitModule(cfg.model, cfg.training)
 
     artifacts_dir = Path("artifacts")
@@ -153,18 +160,17 @@ def train(cfg: DictConfig) -> float:
             auto_insert_metric_name=False,
         ),
         LearningRateMonitor(logging_interval="epoch"),
-        ThresholdCalibrationCallback(
-            target_sensitivity=0.80,
-            output_path=str(artifacts_dir / "threshold.json"),
-        ),
     ]
 
-    deterministic: bool = cfg.training.get("deterministic", True)
-    # cuDNN benchmarking picks the fastest convolution algorithm per input shape, but
-    # the choice is nondeterministic, so it is mutually exclusive with reproducible runs.
-    torch.backends.cudnn.benchmark = not deterministic
-
+    # cudnn.deterministic / cudnn.benchmark are already set coherently by set_seed above.
     logger.info("Starting trainer …", fast_dev_run=fast_dev_run, deterministic=deterministic)
+    trainer_kwargs: dict = {}
+    if not fast_dev_run:
+        # 4 validations/epoch instead of 1 — with only 6-8 epochs, a single check per
+        # epoch gives too few samples of the val curve to trust the argmax (a previous
+        # run's "best" checkpoint was its very first validation ever performed).
+        # early_stopping_patience is expressed in units of these checks, not epochs.
+        trainer_kwargs["val_check_interval"] = 0.25
     trainer = Trainer(
         max_epochs=cfg.training.epochs,
         precision=cfg.training.precision,
@@ -173,6 +179,7 @@ def train(cfg: DictConfig) -> float:
         log_every_n_steps=10,
         fast_dev_run=fast_dev_run,
         deterministic=deterministic,
+        **trainer_kwargs,
     )
 
     peak_auroc: float | None = None
@@ -202,13 +209,53 @@ def train(cfg: DictConfig) -> float:
         if not fast_dev_run:
             best_ckpt = trainer.checkpoint_callback.best_model_path  # type: ignore[union-attr]
             logger.info("Best checkpoint", path=best_ckpt)
+            # Store repo-relative in threshold.json / test_metrics.json — /test-metrics
+            # serves that file verbatim, and an absolute local path there is both
+            # useless to a remote caller and an unintended disclosure of local layout.
+            project_root = Path(__file__).resolve().parent.parent
+            try:
+                checkpoint_ref = str(Path(best_ckpt).resolve().relative_to(project_root))
+            except ValueError:
+                checkpoint_ref = best_ckpt
+
+            # Lightning leaves the *final* epoch's weights in memory after fit(); it
+            # does not restore the best ones. Logging lit_module.model directly would
+            # therefore deploy the most overfit epoch of the run while the metrics
+            # reported alongside it describe the best epoch.
+            best_module = MelanomaLitModule.load_from_checkpoint(
+                best_ckpt, map_location="cpu", weights_only=False
+            )
+            deployable = best_module.model.eval()
+
+            # Calibrate against the deployable weights, through the same 8-pass TTA
+            # averaging the API applies, so the threshold matches the served pipeline.
+            calibration_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            try:
+                payload = calibrate_threshold(
+                    deployable,
+                    pd.read_csv(Path(cfg.data.processed_dir) / "val.csv"),
+                    cfg.data.image_dir,
+                    calibration_device,
+                    target_sensitivity=cfg.training.target_sensitivity,
+                    output_path=artifacts_dir / "threshold.json",
+                    image_size=cfg.data.image_size,
+                    batch_size=cfg.training.batch_size * 2,
+                    num_workers=cfg.data.num_workers,
+                    run_id=run_id,
+                    checkpoint=checkpoint_ref,
+                )
+                mlflow.log_metric("calibrated_threshold", payload["threshold"])
+                mlflow.log_metric("val/auroc_tta", payload["val_auroc"])
+            except Exception as exc:
+                logger.warning("Threshold calibration failed", error=str(exc))
+
             try:
                 # MLflow 3 defaults to serialization_format="pt2", which requires an
                 # input_example for torch.export tracing. Our multimodal forward
                 # (image, metadata) is awkward to export that way, and serving loads
                 # via mlflow.pytorch.load_model — pickle remains the compatible path.
                 model_info = mlflow.pytorch.log_model(
-                    lit_module.model,
+                    deployable,
                     name="model",
                     registered_model_name="melanoma-classifier",
                     serialization_format="pickle",

@@ -8,10 +8,8 @@ export default {
           300: '#5eead4',
           400: '#00d4aa',
           500: '#00b896',
-          600: '#00806b',
         },
         ink: {
-          950: '#070b14',
           900: '#0d1322',
           800: '#111e2e',
           700: '#162030',
@@ -26,9 +24,7 @@ export default {
       animation: {
         'spin-slow': 'spin 3s linear infinite',
         'pulse-teal': 'pulse-teal 2s ease-in-out infinite',
-        'scan-line': 'scan-line 2.4s linear infinite',
         'fade-in': 'fade-in 0.5s ease-out',
-        'slide-up': 'slide-up 0.45s ease-out',
         'drift': 'drift 8s ease-in-out infinite alternate',
       },
       keyframes: {
@@ -36,17 +32,9 @@ export default {
           '0%, 100%': { opacity: '0.6', transform: 'scale(1)' },
           '50%': { opacity: '1', transform: 'scale(1.05)' },
         },
-        'scan-line': {
-          '0%': { transform: 'translateY(0%)' },
-          '100%': { transform: 'translateY(100%)' },
-        },
         'fade-in': {
           '0%': { opacity: '0' },
           '100%': { opacity: '1' },
-        },
-        'slide-up': {
-          '0%': { opacity: '0', transform: 'translateY(18px)' },
-          '100%': { opacity: '1', transform: 'translateY(0)' },
         },
         'drift': {
           '0%': { transform: 'translate(0px, 0px) rotate(0deg)' },
@@ -55,8 +43,6 @@ export default {
       },
       boxShadow: {
         teal: '0 0 28px rgba(0, 212, 170, 0.15)',
-        'teal-sm': '0 0 12px rgba(0, 212, 170, 0.1)',
-        card: '0 4px 32px rgba(0,0,0,0.45)',
       },
       backgroundImage: {
         'dot-grid': "radial-gradient(rgba(0,212,170,0.18) 1px, transparent 1px)",

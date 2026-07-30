@@ -70,11 +70,13 @@ export default function Navbar() {
           </a>
 
           <a
-            href="#"
+            href="https://github.com/MuhammadNisarWCSS/Melanoma-Detection"
+            target="_blank"
+            rel="noopener noreferrer"
             aria-label="GitHub"
             className="text-slate-600 hover:text-slate-300 transition-colors"
           >
-            <Github className="h-4.5 w-4.5" />
+            <Github className="h-5 w-5" />
           </a>
         </div>
       </div>

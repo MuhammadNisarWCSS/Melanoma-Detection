@@ -13,22 +13,6 @@ import {
 import { motion } from 'framer-motion'
 import { fetchMLflowStats, fetchApiMetadata, type MLflowStats, type MLflowRun } from '../api/client'
 
-// ─── Static benchmark data (from README) ─────────────────────────────────────
-
-const BENCHMARKS = [
-  { model: 'EfficientNet-B4 + Metadata', auroc: 0.89, highlight: true },
-  { model: 'EfficientNet-B2 + Metadata', auroc: 0.87, highlight: false },
-  { model: 'EfficientNet-B4 (image only)', auroc: 0.87, highlight: false },
-  { model: 'ResNet-50 + Metadata', auroc: 0.85, highlight: false },
-]
-
-const AUROC_MIN = 0.82
-const AUROC_MAX = 0.92
-
-function aurocBar(auroc: number): number {
-  return (auroc - AUROC_MIN) / (AUROC_MAX - AUROC_MIN)
-}
-
 // ─── Architecture diagram ─────────────────────────────────────────────────────
 
 function ArchDiagram() {
@@ -49,8 +33,8 @@ function ArchDiagram() {
     { text: '  → Linear(512 → 1)    → sigmoid  →  malignancy probability' },
     { text: '' },
     { text: '// Training details', teal: true },
-    { text: 'Loss: Focal Loss  (γ=2.0, α=0.25)' },
-    { text: 'Opt:  AdamW  (lr=1e-3, wd=1e-4)' },
+    { text: 'Loss: Focal Loss  (γ=2.0, α=0.5)' },
+    { text: 'Opt:  AdamW  (lr=3e-4, wd=1e-3)' },
     { text: 'Sched: CosineAnnealingLR  ·  EarlyStopping on val AUROC' },
     { text: 'Infer: 8-pass TTA  ·  Post-hoc threshold calibration' },
   ]
@@ -72,7 +56,7 @@ function ArchDiagram() {
   )
 }
 
-// ─── Run table ────────────────────────────────────────────────────────────────
+// ─── Run table (model selection) ─────────────────────────────────────────────
 
 function formatDuration(ms: number | null): string {
   if (!ms) return '—'
@@ -89,10 +73,10 @@ function RunTable({ runs }: { runs: MLflowRun[] }) {
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[620px] text-[13px]">
+      <table className="w-full min-w-[720px] text-[13px]">
         <thead>
           <tr className="border-b border-ink-600/60">
-            {['Run ID', 'Backbone', 'Highest Val AUROC', 'Val F1', 'Duration', 'Status'].map((h) => (
+            {['Run ID', 'Backbone', 'Val AUROC', 'Test AUROC', 'Test Specificity', 'Duration', 'Status'].map((h) => (
               <th
                 key={h}
                 className="px-4 py-3 text-left font-mono text-[10px] uppercase tracking-wider text-slate-600"
@@ -117,8 +101,11 @@ function RunTable({ runs }: { runs: MLflowRun[] }) {
                   {run.val_auroc != null ? run.val_auroc.toFixed(4) : '—'}
                 </span>
               </td>
+              <td className="px-4 py-3 font-mono text-slate-400">
+                {run.test_auroc != null ? run.test_auroc.toFixed(4) : '—'}
+              </td>
               <td className="px-4 py-3 font-mono text-slate-500">
-                {run.val_f1 != null ? run.val_f1.toFixed(4) : '—'}
+                {run.test_specificity != null ? `${(run.test_specificity * 100).toFixed(1)}%` : '—'}
               </td>
               <td className="px-4 py-3 text-slate-600">
                 <span className="flex items-center gap-1.5">
@@ -147,6 +134,77 @@ function RunTable({ runs }: { runs: MLflowRun[] }) {
   )
 }
 
+// ─── Architecture comparison (real runs from MLflow) ─────────────────────────
+
+function ArchComparison({ runs }: { runs: MLflowRun[] }) {
+  const scored = runs.filter((r) => r.test_auroc != null)
+  if (scored.length === 0) return null
+
+  const aurocVals = scored.map((r) => r.test_auroc!).filter((v) => v > 0)
+  const MIN = Math.max(0, Math.min(...aurocVals) - 0.02)
+  const MAX = Math.min(1, Math.max(...aurocVals) + 0.01)
+
+  return (
+    <div className="divide-y divide-ink-600/30">
+      {scored.map((run, i) => {
+        const barWidth = MAX > MIN ? (run.test_auroc! - MIN) / (MAX - MIN) : 0
+        const isChampion = i === 0
+        return (
+          <div
+            key={run.run_id}
+            className={`flex items-center gap-4 px-6 py-4 ${isChampion ? 'bg-teal-400/[0.03]' : ''}`}
+          >
+            <div className="flex flex-1 items-center gap-3 min-w-0">
+              {isChampion && (
+                <span
+                  className="shrink-0 rounded border border-teal-400/20 bg-teal-400/10 px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-wider text-teal-400"
+                  title="Highest validation AUROC — test AUROC shown alongside is that run's held-out score, not necessarily the highest test AUROC in the list"
+                >
+                  CHAMPION (val)
+                </span>
+              )}
+              <span className={`truncate text-[14px] ${isChampion ? 'font-medium text-slate-200' : 'text-slate-500'}`}>
+                {run.backbone}
+              </span>
+            </div>
+            <div className="flex items-center gap-3 shrink-0">
+              <div className="text-right">
+                <div className={`font-mono text-[13px] ${isChampion ? 'font-semibold text-teal-400' : 'text-slate-500'}`}>
+                  {run.test_auroc!.toFixed(4)}
+                </div>
+                <div className="text-[10px] text-slate-700">test AUROC</div>
+              </div>
+              {run.test_specificity != null && (
+                <div className="text-right hidden sm:block">
+                  <div className="font-mono text-[12px] text-slate-500">
+                    {(run.test_specificity * 100).toFixed(1)}%
+                  </div>
+                  <div className="text-[10px] text-slate-700">specificity</div>
+                </div>
+              )}
+              <div className="hidden w-24 sm:block">
+                <div className="h-[3px] overflow-hidden rounded-full bg-ink-600">
+                  <motion.div
+                    className="h-full rounded-full"
+                    style={{
+                      backgroundColor: isChampion ? '#00d4aa' : '#253548',
+                      boxShadow: isChampion ? '0 0 6px rgba(0,212,170,0.4)' : 'none',
+                    }}
+                    initial={{ width: 0 }}
+                    whileInView={{ width: `${barWidth * 100}%` }}
+                    viewport={{ once: true }}
+                    transition={{ duration: 0.8, delay: i * 0.1, ease: 'easeOut' }}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 type LoadState = 'idle' | 'loading' | 'success' | 'error'
@@ -170,11 +228,11 @@ export default function ModelStats() {
 
   useEffect(() => { load() }, [])
 
-  const bestAuroc = stats?.best_auroc ?? 0
+  const bestTestAuroc = stats?.runs?.[0]?.test_auroc ?? null
+  const bestValAuroc = stats?.best_auroc ?? 0
   const totalRuns = stats?.total_runs ?? null
   const hasLiveRuns = loadState === 'success' && (stats?.runs?.length ?? 0) > 0
 
-  // Derive architecture label from the best MLflow run's backbone param.
   const bestBackbone = stats?.runs?.[0]?.backbone
   let architectureLabel = '—'
   if (bestBackbone && bestBackbone !== 'unknown') {
@@ -185,12 +243,20 @@ export default function ModelStats() {
   const ttaLabel = ttaPasses != null ? `${ttaPasses}×` : '—'
   const ttaSub = ttaPasses != null ? 'Live from API' : 'Test-time augmentation'
 
+  // Test AUROC of the champion (best-val) run when available — not necessarily the
+  // highest test AUROC across all runs, since champion selection is by val AUROC.
+  const displayAuroc = bestTestAuroc ?? bestValAuroc
+  const displayAurocLabel = bestTestAuroc != null ? 'Champion Test AUROC' : 'Best Val AUROC'
+  const displayAurocSub = bestTestAuroc != null
+    ? (loadState === 'success' ? 'Live from MLflow (test)' : 'Held-out test set')
+    : (loadState === 'success' ? 'Live from MLflow (val)' : 'Validated benchmark')
+
   const statCards = [
     {
       icon: BarChart3,
-      label: 'Best Val AUROC',
-      value: bestAuroc.toFixed(3),
-      sub: loadState === 'success' ? 'Live from MLflow' : 'Validated benchmark',
+      label: displayAurocLabel,
+      value: displayAuroc.toFixed(3),
+      sub: displayAurocSub,
     },
     {
       icon: TrendingUp,
@@ -212,6 +278,8 @@ export default function ModelStats() {
     },
   ]
 
+  const hasArchComparison = hasLiveRuns && (stats?.runs?.some((r) => r.test_auroc != null) ?? false)
+
   return (
     <section
       id="stats"
@@ -228,10 +296,10 @@ export default function ModelStats() {
         >
           <div>
             <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.2em] text-teal-400">
-              Performance
+              Experiments
             </p>
             <h2 className="text-[32px] font-bold tracking-tight text-slate-100">
-              Model Statistics
+              Model Selection
             </h2>
             <div className="mt-2 flex items-center gap-2.5">
               <p className="text-[15px] text-slate-400">
@@ -240,7 +308,7 @@ export default function ModelStats() {
                     ? `Live MLflow data · ${stats!.runs.length} training runs tracked`
                     : 'MLflow reachable · No runs recorded yet'
                   : loadState === 'error'
-                  ? 'MLflow offline · Showing validated benchmarks'
+                  ? 'MLflow offline · Showing static data'
                   : 'Connecting to MLflow tracking server…'}
               </p>
               <span
@@ -264,6 +332,10 @@ export default function ModelStats() {
                 {loadState === 'success' ? 'Live' : loadState === 'error' ? 'Offline' : 'Connecting'}
               </span>
             </div>
+            <p className="mt-2 text-[12px] text-slate-600">
+              Val AUROC drove early stopping, checkpoint selection, and threshold calibration.
+              Final numbers are from the held-out test set above.
+            </p>
           </div>
 
           {loadState === 'error' && (
@@ -305,70 +377,26 @@ export default function ModelStats() {
           ))}
         </div>
 
-        {/* Benchmark table */}
-        <motion.div
-          className="mb-8 overflow-hidden rounded-2xl border border-ink-600/70 bg-ink-800/50"
-          initial={{ opacity: 0 }}
-          whileInView={{ opacity: 1 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.5 }}
-        >
-          <div className="border-b border-ink-600/60 px-6 py-4">
-            <h3 className="text-[15px] font-semibold text-slate-200">Architecture Comparison</h3>
-            <p className="mt-0.5 text-[12px] text-slate-600">
-              Validation AUROC on held-out ISIC 2020 split
-            </p>
-          </div>
-          <div className="divide-y divide-ink-600/30">
-            {BENCHMARKS.map((b, i) => (
-              <div
-                key={b.model}
-                className={`flex items-center gap-6 px-6 py-4 ${
-                  b.highlight ? 'bg-teal-400/[0.03]' : ''
-                }`}
-              >
-                <div className="flex flex-1 items-center gap-3">
-                  {b.highlight && (
-                    <span className="shrink-0 rounded border border-teal-400/20 bg-teal-400/10 px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-wider text-teal-400">
-                      BEST
-                    </span>
-                  )}
-                  <span
-                    className={`text-[14px] ${b.highlight ? 'font-medium text-slate-200' : 'text-slate-500'}`}
-                  >
-                    {b.model}
-                  </span>
-                </div>
-                <div className="flex items-center gap-4">
-                  <span
-                    className={`w-14 text-right font-mono text-[14px] ${
-                      b.highlight ? 'font-semibold text-teal-400' : 'text-slate-500'
-                    }`}
-                  >
-                    {b.auroc.toFixed(2)}
-                  </span>
-                  <div className="hidden w-28 sm:block">
-                    <div className="h-[3px] overflow-hidden rounded-full bg-ink-600">
-                      <motion.div
-                        className="h-full rounded-full"
-                        style={{
-                          backgroundColor: b.highlight ? '#00d4aa' : '#253548',
-                          boxShadow: b.highlight ? '0 0 6px rgba(0,212,170,0.4)' : 'none',
-                        }}
-                        initial={{ width: 0 }}
-                        whileInView={{ width: `${aurocBar(b.auroc) * 100}%` }}
-                        viewport={{ once: true }}
-                        transition={{ duration: 0.8, delay: i * 0.1, ease: 'easeOut' }}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </motion.div>
+        {/* Architecture comparison — real runs from MLflow */}
+        {hasArchComparison && (
+          <motion.div
+            className="mb-8 overflow-hidden rounded-2xl border border-ink-600/70 bg-ink-800/50"
+            initial={{ opacity: 0 }}
+            whileInView={{ opacity: 1 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.5 }}
+          >
+            <div className="border-b border-ink-600/60 px-6 py-4">
+              <h3 className="text-[15px] font-semibold text-slate-200">Architecture Comparison</h3>
+              <p className="mt-0.5 text-[12px] text-slate-600">
+                Held-out test AUROC &amp; specificity · runs from MLflow experiment
+              </p>
+            </div>
+            <ArchComparison runs={stats!.runs} />
+          </motion.div>
+        )}
 
-        {/* Live MLflow runs */}
+        {/* Live MLflow runs (model selection table) */}
         {hasLiveRuns && (
           <motion.div
             className="mb-8 overflow-hidden rounded-2xl border border-ink-600/70 bg-ink-800/50"
@@ -378,9 +406,10 @@ export default function ModelStats() {
           >
             <div className="flex items-center justify-between border-b border-ink-600/60 px-6 py-4">
               <div>
-                <h3 className="text-[15px] font-semibold text-slate-200">Live Training Runs</h3>
+                <h3 className="text-[15px] font-semibold text-slate-200">Model Selection (Validation)</h3>
                 <p className="mt-0.5 text-[12px] text-slate-600">
-                  melanoma-detection experiment · MLflow tracking server
+                  Runs sorted by val AUROC · used for early stopping &amp; checkpoint selection · final
+                  evaluation on held-out test set
                 </p>
               </div>
               <span className="font-mono text-[11px] text-teal-400 border border-teal-400/20 rounded px-2 py-0.5">
