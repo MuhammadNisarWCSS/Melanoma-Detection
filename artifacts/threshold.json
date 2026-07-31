@@ -1,0 +1,10 @@
+{
+  "threshold": 0.23480451107025146,
+  "target_sensitivity": 0.8,
+  "tta_passes": 8,
+  "val_auroc": 0.9235802178465656,
+  "n_val": 5245,
+  "n_positive": 94,
+  "run_id": "739da85ad9ab4056a4989eea24a971dc",
+  "checkpoint": "1\\739da85ad9ab4056a4989eea24a971dc\\checkpoints\\epoch=4-auroc=0.9252.ckpt"
+}

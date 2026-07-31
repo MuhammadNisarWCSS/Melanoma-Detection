@@ -22,6 +22,7 @@ data/processed/*
 !data/processed/.gitkeep
 artifacts/*
 !artifacts/.gitkeep
+!artifacts/threshold.json
 
 # Optional baked model for the API Docker image
 serving_model/*
