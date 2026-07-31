@@ -96,6 +96,17 @@ def configure_logging(
     Set ``LOG_TO_FILE=0`` to disable file capture. In Docker (``/.dockerenv``)
     file logging is off by default so container logs stay on stdout/stderr.
     """
+    # structlog.stdlib.LoggerFactory routes through the stdlib logging module, whose
+    # loggers default to WARNING with no handler — INFO records were silently dropped
+    # and even WARNING/ERROR only reached stderr via the unformatted "last resort"
+    # handler, unformatted and easy to miss (e.g. the Predictor load failure that
+    # left the API running with no model and no visible error).
+    logging.basicConfig(
+        level=getattr(logging, level.upper(), logging.INFO),
+        format="%(message)s",
+        stream=sys.stdout,
+        force=True,
+    )
     structlog.configure(
         processors=[
             structlog.contextvars.merge_contextvars,

@@ -49,7 +49,11 @@ class Predictor:
 
         self.model_uri = model_uri
         logger.info("Loading model from MLflow", uri=model_uri)
-        self.model: MelanomaClassifier = mlflow.pytorch.load_model(model_uri)
+        # map_location: checkpoints logged from a GPU training run otherwise fail to
+        # deserialize on this box when it has no CUDA device (e.g. the CPU-only EC2 API).
+        self.model: MelanomaClassifier = mlflow.pytorch.load_model(
+            model_uri, map_location=self.device
+        )
         self.model.eval().to(self.device)
         logger.info("Model loaded", device=str(self.device))
 
