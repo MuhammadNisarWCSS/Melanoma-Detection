@@ -65,18 +65,50 @@ class Predictor:
     def ood_enabled(self) -> bool:
         return self.ood is not None
 
-    @staticmethod
-    def _load_threshold(threshold_path: str | None) -> float:
-        if threshold_path is None:
-            return 0.5
-        p = Path(threshold_path)
-        if not p.exists():
-            logger.warning("Threshold file not found; using default 0.5", path=str(p))
-            return 0.5
-        data = json.loads(p.read_text())
-        threshold: float = data["threshold"]
-        logger.info("Calibrated threshold loaded", threshold=threshold)
-        return threshold
+    def _load_threshold(self, threshold_path: str | None) -> float:
+        if threshold_path is not None:
+            p = Path(threshold_path)
+            if p.exists():
+                data = json.loads(p.read_text())
+                threshold: float = data["threshold"]
+                logger.info(
+                    "Calibrated threshold loaded from disk", threshold=threshold, path=str(p)
+                )
+                return threshold
+
+        downloaded = self._download_threshold_from_run()
+        if downloaded is not None:
+            logger.info("Calibrated threshold loaded from MLflow run", threshold=downloaded)
+            return downloaded
+
+        logger.warning(
+            "No threshold file on disk or on the model's MLflow run; using default 0.5",
+            path=str(threshold_path) if threshold_path else None,
+        )
+        return 0.5
+
+    def _download_threshold_from_run(self) -> float | None:
+        """Fetch threshold.json logged by scripts/train.py on the model's own run.
+
+        Keeps the served threshold tied to whichever model MLflow resolves —
+        train.py always logs threshold.json alongside the model artifact, so this
+        needs no manual step (git commit, image rebuild) to reach production.
+        """
+        match = _RUN_URI_RE.match(self.model_uri or "")
+        if not match:
+            return None
+        run_id = match.group(1)
+        try:
+            local_path = mlflow.artifacts.download_artifacts(
+                artifact_uri=f"runs:/{run_id}/threshold.json"
+            )
+            data = json.loads(Path(local_path).read_text())
+            return float(data["threshold"])
+        except Exception as exc:
+            logger.debug(
+                "No threshold artifact available on model run", run_id=run_id, error=str(exc)
+            )
+            return None
 
     def _load_or_fit_ood(self, cache_path: str | None) -> EmbeddingOODDetector | None:
         path = Path(cache_path or os.environ.get("OOD_CACHE_PATH", "artifacts/ood_detector.npz"))
