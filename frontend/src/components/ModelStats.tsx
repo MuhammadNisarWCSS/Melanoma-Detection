@@ -40,7 +40,7 @@ function ArchDiagram() {
   ]
 
   return (
-    <div className="overflow-x-auto rounded-xl bg-[#050810] p-5">
+    <div className="overflow-x-auto rounded-xl bg-[#2a221c] p-5">
       <pre className="font-mono text-[12px] leading-6 text-slate-500">
         {lines.map((l, i) =>
           l.text === '' ? (
@@ -187,8 +187,8 @@ function ArchComparison({ runs }: { runs: MLflowRun[] }) {
                   <motion.div
                     className="h-full rounded-full"
                     style={{
-                      backgroundColor: isChampion ? '#00d4aa' : '#253548',
-                      boxShadow: isChampion ? '0 0 6px rgba(0,212,170,0.4)' : 'none',
+                      backgroundColor: isChampion ? '#c1683f' : '#d8c2a8',
+                      boxShadow: isChampion ? '0 0 6px rgba(193,104,63,0.4)' : 'none',
                     }}
                     initial={{ width: 0 }}
                     whileInView={{ width: `${barWidth * 100}%` }}
@@ -298,7 +298,7 @@ export default function ModelStats() {
             <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.2em] text-teal-400">
               Experiments
             </p>
-            <h2 className="text-[32px] font-bold tracking-tight text-slate-100">
+            <h2 className="font-display text-[32px] font-semibold tracking-tight text-slate-100">
               Model Selection
             </h2>
             <div className="mt-2 flex items-center gap-2.5">

@@ -50,45 +50,45 @@ function RocChart({
         <line
           key={t}
           x1={sx(0)} y1={sy(t)} x2={sx(1)} y2={sy(t)}
-          stroke="#1e2d40" strokeWidth="1"
+          stroke="#e6d9c9" strokeWidth="1"
         />
       ))}
       {[0, 0.25, 0.5, 0.75, 1].map((t) => (
         <line
           key={t}
           x1={sx(t)} y1={sy(0)} x2={sx(t)} y2={sy(1)}
-          stroke="#1e2d40" strokeWidth="1"
+          stroke="#e6d9c9" strokeWidth="1"
         />
       ))}
 
       {/* Chance diagonal */}
-      <line x1={sx(0)} y1={sy(0)} x2={sx(1)} y2={sy(1)} stroke="#334155" strokeWidth="1" strokeDasharray="4 3" />
+      <line x1={sx(0)} y1={sy(0)} x2={sx(1)} y2={sy(1)} stroke="#c9bdb2" strokeWidth="1" strokeDasharray="4 3" />
 
       {/* ROC curve */}
-      <polyline points={pts} fill="none" stroke="#00d4aa" strokeWidth="1.8" strokeLinejoin="round" />
+      <polyline points={pts} fill="none" stroke="#c1683f" strokeWidth="1.8" strokeLinejoin="round" />
 
       {/* Operating point */}
-      <circle cx={sx(opFpr)} cy={sy(opTpr)} r="4" fill="#f59e0b" stroke="#070b14" strokeWidth="1.5" />
+      <circle cx={sx(opFpr)} cy={sy(opTpr)} r="4" fill="#b3761c" stroke="#fbf6f2" strokeWidth="1.5" />
 
       {/* Axes labels */}
-      <text x={W / 2} y={H - 4} textAnchor="middle" fontSize="9" fill="#475569">FPR (1 − Specificity)</text>
+      <text x={W / 2} y={H - 4} textAnchor="middle" fontSize="9" fill="#9c8a80">FPR (1 − Specificity)</text>
       <text
         x={10}
         y={H / 2}
         textAnchor="middle"
         fontSize="9"
-        fill="#475569"
+        fill="#9c8a80"
         transform={`rotate(-90, 10, ${H / 2})`}
       >TPR (Sensitivity)</text>
 
       {/* Axis ticks */}
       {[0, 0.5, 1].map((t) => (
-        <text key={t} x={sx(t)} y={H - 16} textAnchor="middle" fontSize="7" fill="#334155">
+        <text key={t} x={sx(t)} y={H - 16} textAnchor="middle" fontSize="7" fill="#c9bdb2">
           {t.toFixed(1)}
         </text>
       ))}
       {[0, 0.5, 1].map((t) => (
-        <text key={t} x={PAD - 4} y={sy(t) + 3} textAnchor="end" fontSize="7" fill="#334155">
+        <text key={t} x={PAD - 4} y={sy(t) + 3} textAnchor="end" fontSize="7" fill="#c9bdb2">
           {t.toFixed(1)}
         </text>
       ))}
@@ -114,14 +114,14 @@ function ReliabilityChart({
     <svg viewBox={`0 0 ${W} ${H}`} className="w-full max-w-[260px]">
       {/* Grid */}
       {[0, 0.25, 0.5, 0.75, 1].map((t) => (
-        <line key={t} x1={sx(0)} y1={sy(t)} x2={sx(1)} y2={sy(t)} stroke="#1e2d40" strokeWidth="1" />
+        <line key={t} x1={sx(0)} y1={sy(t)} x2={sx(1)} y2={sy(t)} stroke="#e6d9c9" strokeWidth="1" />
       ))}
       {[0, 0.25, 0.5, 0.75, 1].map((t) => (
-        <line key={t} x1={sx(t)} y1={sy(0)} x2={sx(t)} y2={sy(1)} stroke="#1e2d40" strokeWidth="1" />
+        <line key={t} x1={sx(t)} y1={sy(0)} x2={sx(t)} y2={sy(1)} stroke="#e6d9c9" strokeWidth="1" />
       ))}
 
       {/* Perfect calibration diagonal */}
-      <line x1={sx(0)} y1={sy(0)} x2={sx(1)} y2={sy(1)} stroke="#334155" strokeWidth="1" strokeDasharray="4 3" />
+      <line x1={sx(0)} y1={sy(0)} x2={sx(1)} y2={sy(1)} stroke="#c9bdb2" strokeWidth="1" strokeDasharray="4 3" />
 
       {/* Calibration bars */}
       {meanPred.map((x, i) => (
@@ -131,24 +131,24 @@ function ReliabilityChart({
           y={sy(meanTrue[i])}
           width={10}
           height={sy(0) - sy(meanTrue[i])}
-          fill="#00d4aa33"
-          stroke="#00d4aa"
+          fill="#c1683f33"
+          stroke="#c1683f"
           strokeWidth="1"
         />
       ))}
 
       {/* Dots */}
       {meanPred.map((x, i) => (
-        <circle key={i} cx={sx(x)} cy={sy(meanTrue[i])} r="3" fill="#00d4aa" />
+        <circle key={i} cx={sx(x)} cy={sy(meanTrue[i])} r="3" fill="#c1683f" />
       ))}
 
-      <text x={W / 2} y={H - 4} textAnchor="middle" fontSize="9" fill="#475569">Mean predicted probability</text>
+      <text x={W / 2} y={H - 4} textAnchor="middle" fontSize="9" fill="#9c8a80">Mean predicted probability</text>
       <text
         x={10}
         y={H / 2}
         textAnchor="middle"
         fontSize="9"
-        fill="#475569"
+        fill="#9c8a80"
         transform={`rotate(-90, 10, ${H / 2})`}
       >Fraction of positives</text>
     </svg>
@@ -328,7 +328,7 @@ export default function TestMetricsSection() {
             <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.2em] text-teal-400">
               Held-out evaluation
             </p>
-            <h2 className="text-[32px] font-bold tracking-tight text-slate-100">
+            <h2 className="font-display text-[32px] font-semibold tracking-tight text-slate-100">
               Test Set Results
             </h2>
             {loadState === 'success' && data ? (

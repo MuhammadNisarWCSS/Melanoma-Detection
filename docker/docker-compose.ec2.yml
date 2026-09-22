@@ -10,7 +10,7 @@
 #     -f docker/docker-compose.ec2.yml up -d
 
 services:
-  api:
+  backend:
     volumes: !reset
 
 volumes:

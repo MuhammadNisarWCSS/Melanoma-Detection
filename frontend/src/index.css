@@ -4,8 +4,8 @@
 
 @layer base {
   :root {
-    --teal: #00d4aa;
-    --teal-glow: rgba(0, 212, 170, 0.15);
+    --teal: #c1683f;
+    --teal-glow: rgba(193, 104, 63, 0.18);
   }
 
   * {
@@ -18,8 +18,8 @@
   }
 
   body {
-    background-color: #070b14;
-    color: #e2e8f0;
+    background-color: #fbf6f2;
+    color: #2b2320;
     font-family: 'Inter', system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -32,14 +32,14 @@
     height: 6px;
   }
   ::-webkit-scrollbar-track {
-    background: #0d1322;
+    background: #f3e4da;
   }
   ::-webkit-scrollbar-thumb {
-    background: #1e2d3d;
+    background: #e3cdb8;
     border-radius: 9999px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #253548;
+    background: #d8b89a;
   }
 
   /* Range input */
@@ -48,7 +48,7 @@
     appearance: none;
     height: 4px;
     border-radius: 9999px;
-    background: #1e2d3d;
+    background: #e8dccd;
     outline: none;
     cursor: pointer;
   }
@@ -58,27 +58,27 @@
     width: 16px;
     height: 16px;
     border-radius: 50%;
-    background: #00d4aa;
+    background: #c1683f;
     cursor: pointer;
-    box-shadow: 0 0 0 3px rgba(0, 212, 170, 0.2);
+    box-shadow: 0 0 0 3px rgba(193, 104, 63, 0.2);
     transition: box-shadow 0.15s;
   }
   input[type='range']::-webkit-slider-thumb:hover {
-    box-shadow: 0 0 0 5px rgba(0, 212, 170, 0.3);
+    box-shadow: 0 0 0 5px rgba(193, 104, 63, 0.3);
   }
   input[type='range']::-moz-range-thumb {
     width: 16px;
     height: 16px;
     border-radius: 50%;
-    background: #00d4aa;
+    background: #c1683f;
     cursor: pointer;
     border: none;
-    box-shadow: 0 0 0 3px rgba(0, 212, 170, 0.2);
+    box-shadow: 0 0 0 3px rgba(193, 104, 63, 0.2);
   }
 
   /* Select */
   select {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%237a655c' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
     background-repeat: no-repeat;
     background-position: right 12px center;
     -webkit-appearance: none;
@@ -88,44 +88,44 @@
     outline: none;
   }
   select option {
-    background-color: #111e2e;
-    color: #e2e8f0;
+    background-color: #ffffff;
+    color: #2b2320;
   }
 }
 
 @layer utilities {
   .bg-dot-pattern {
-    background-image: radial-gradient(rgba(0, 212, 170, 0.15) 1px, transparent 1px);
+    background-image: radial-gradient(rgba(193, 104, 63, 0.14) 1px, transparent 1px);
     background-size: 28px 28px;
   }
 
   .glow-teal {
-    box-shadow: 0 0 28px rgba(0, 212, 170, 0.15);
+    box-shadow: 0 0 28px rgba(193, 104, 63, 0.16);
   }
 
   .text-gradient-teal {
-    background: linear-gradient(135deg, #00d4aa 0%, #5eead4 100%);
+    background: linear-gradient(135deg, #c1683f 0%, #dc9468 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
   }
 
   .border-glow {
-    box-shadow: inset 0 0 0 1px rgba(0, 212, 170, 0.3), 0 0 16px rgba(0, 212, 170, 0.08);
+    box-shadow: inset 0 0 0 1px rgba(193, 104, 63, 0.25), 0 0 16px rgba(193, 104, 63, 0.08);
   }
 
   .glass-card {
-    background: rgba(15, 30, 46, 0.7);
+    background: rgba(255, 255, 255, 0.7);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(30, 45, 61, 0.8);
+    border: 1px solid rgba(232, 220, 205, 0.8);
   }
 
   .scan-overlay {
     background: linear-gradient(
       to bottom,
       transparent 0%,
-      rgba(0, 212, 170, 0.06) 50%,
+      rgba(193, 104, 63, 0.05) 50%,
       transparent 100%
     );
     height: 30%;

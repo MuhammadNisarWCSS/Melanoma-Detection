@@ -491,7 +491,7 @@ A container packages the code *plus* Python, PyTorch, system libraries, everythi
 runnable image. It eliminates "works on my machine". Three containers here:
 
 - **frontend** — nginx serving the React app
-- **api** — FastAPI + PyTorch
+- **backend** — FastAPI + PyTorch
 - **mlflow** — the tracking server
 
 `docker compose` runs all three together with one command. nginx also acts as a **reverse proxy**:

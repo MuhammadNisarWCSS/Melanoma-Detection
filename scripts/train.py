@@ -32,6 +32,7 @@ if hasattr(sys.stderr, "reconfigure"):
 from datetime import UTC
 
 import hydra
+import httpx
 import mlflow
 import pandas as pd
 import torch
@@ -102,6 +103,32 @@ def _register_run_guardian(run_id: str) -> dict[str, bool]:
 
     atexit.register(_guardian)
     return status
+
+
+def _notify_api_reload() -> None:
+    """Best-effort: ask a running API to hot-swap in the model just logged.
+
+    Opt-in via API_RELOAD_URL (e.g. http://localhost:8000/reload-model or
+    http://<ec2-ip>:8000/reload-model). Silently does nothing if unset, so
+    this has no effect on CI or training runs with no serving API nearby.
+    The API only actually swaps if this run resolves as the new best
+    val/auroc, so it's safe to call unconditionally after every run.
+    """
+    reload_url = os.environ.get("API_RELOAD_URL")
+    if not reload_url:
+        return
+
+    headers = {}
+    reload_token = os.environ.get("RELOAD_TOKEN")
+    if reload_token:
+        headers["X-Reload-Token"] = reload_token
+
+    try:
+        resp = httpx.post(reload_url, headers=headers, timeout=30.0)
+        resp.raise_for_status()
+        logger.info("Notified API to reload model", url=reload_url, response=resp.json())
+    except Exception as exc:
+        logger.warning("Could not notify API to reload model", url=reload_url, error=str(exc))
 
 
 @hydra.main(config_path="../configs", config_name="config", version_base="1.3")
@@ -281,6 +308,8 @@ def train(cfg: DictConfig) -> float:
                         )
                 if (artifacts_dir / "threshold.json").exists():
                     mlflow.log_artifact(str(artifacts_dir / "threshold.json"))
+
+                _notify_api_reload()
             except Exception as exc:
                 logger.warning(
                     "Post-training artifact logging failed — checkpoints on disk are still valid",

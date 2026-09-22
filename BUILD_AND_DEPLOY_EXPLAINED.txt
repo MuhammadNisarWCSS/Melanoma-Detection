@@ -1,0 +1,404 @@
+================================================================================
+HOW THIS PROJECT IS BUILT AND RUN — A PLAIN-LANGUAGE WALKTHROUGH
+================================================================================
+This document explains, from scratch, how the code in this repository turns
+into a running website — both on your own PC and on AWS. It assumes no prior
+knowledge of Docker, containers, or CI/CD. If you already understand the ML
+side of the project, see Summary.txt — this document is only about "how does
+code become a running app."
+
+Read it top to bottom once, then use it as a reference.
+
+
+================================================================================
+PART 1 — THE BIG PICTURE
+================================================================================
+
+This whole project runs as 3 small programs, working together, each sealed
+inside its own "container" (explained in Part 3):
+
+    1. mlflow    — keeps a record of every model that was trained, and stores
+                   the trained model files themselves
+    2. backend       — a Python web service that loads a trained model and answers
+                   "is this photo cancer or not?" questions
+    3. frontend  — the website you see in a browser: upload a photo, click a
+                   button, see the result
+
+These 3 containers are built from your code, then started up together with
+ONE command. That is true whether you run them on your own PC (for testing)
+or on an AWS server (for the public-facing hosted version) — it is literally
+the same 3 containers either way. The only thing that changes is WHERE the
+building happens and WHERE they end up running. Part 7 explains that
+difference in detail.
+
+
+================================================================================
+PART 2 — THE LANGUAGES USED, AND WHERE
+================================================================================
+
+Different parts of the project are written in different languages, each
+suited to its job:
+
+  - Python (folders: src/cancer_detection, scripts/, tests/)
+      Runs the machine-learning model, the training pipeline, and the API
+      server (FastAPI) that answers prediction requests. Python was chosen
+      because virtually the entire ML/AI ecosystem (PyTorch, scikit-learn,
+      etc.) is Python-first.
+
+  - TypeScript / JavaScript + HTML/CSS (folder: frontend/src)
+      Builds the website itself — what runs inside the user's browser: the
+      upload box, the sliders, the result card, the charts. TypeScript is
+      JavaScript with extra safety checks added at build time.
+
+  - YAML (files ending in .yaml or .yml, e.g. configs/, docker/*.yml,
+    .github/workflows/*.yml)
+      Not a programming language — a plain-text way of writing structured
+      settings/instructions, similar to a very strict, indentation-based
+      to-do list. Used here for: model hyperparameters (configs/), how to
+      wire the 3 containers together (docker-compose.yml), and the automated
+      build/deploy steps (GitHub Actions workflow files).
+
+  - Dockerfile syntax (files literally named "Dockerfile", inside docker/ and
+    frontend/)
+      A short, step-by-step recipe language: "start from this base, install
+      these things, copy in this code, run this command when started." Each
+      of the 3 containers has exactly one Dockerfile describing how to build
+      it. Covered in detail in Part 4.
+
+  - Bash / shell script (docker/*/entrypoint.sh, steps inside the GitHub
+    Actions workflow files)
+      Short scripts that run when a container starts, or as individual steps
+      during the automated build/deploy process (e.g. "log in to AWS", "wait
+      until the website responds").
+
+
+================================================================================
+PART 3 — WHAT A "CONTAINER" ACTUALLY IS
+================================================================================
+
+Think of a container like a sealed shipping container, or a fully-packed
+travel suitcase: everything the program needs to run — the exact version of
+Python, every library it depends on, the actual code, the right file
+permissions — is packed inside it ONE time, when it's "built." After that,
+you can hand that sealed box to ANY computer (your laptop, a coworker's
+laptop, an AWS server) and it will run identically every time, because
+nothing about it depends on what else happens to be installed on that
+particular computer.
+
+This solves the classic "works on my machine" problem: without containers,
+if your PC has Python 3.11 and the AWS server has Python 3.9, or a library
+version differs, the app might behave differently or crash on one but not
+the other. A container sidesteps that entirely.
+
+Two related words used throughout this document and the codebase:
+
+  - IMAGE — the sealed, built "box" itself. A static file/template. Building
+    doesn't run anything; it just assembles the box.
+  - CONTAINER — a running instance of an image. You can start multiple
+    containers from the same image (though this project only ever runs one
+    of each).
+
+Analogy: an image is like a recipe printed and packed into a meal kit; a
+container is the actual meal being cooked from that kit right now.
+
+
+================================================================================
+PART 4 — THE 3 CONTAINERS, IN DETAIL
+================================================================================
+
+Each container is defined by its own Dockerfile — a short recipe. Docker
+reads it top to bottom and executes each line to build the image.
+
+--------------------------------------------------------------------------------
+4.1 — mlflow (docker/mlflow/Dockerfile)
+--------------------------------------------------------------------------------
+What it is: MLflow's own tracking-server software (installed via `pip
+install mlflow`), a ready-made tool — none of this container's logic is
+custom-written by this project, it's off-the-shelf software configured to
+run.
+
+What the Dockerfile does, step by step:
+  1. Starts from `python:3.11-slim-bookworm` — a small, pre-made Linux image
+     that already has Python 3.11 installed (this is the "base image" every
+     Dockerfile starts from — nobody builds Python itself from scratch).
+  2. Installs `curl` (a small tool used later just to check "is the server
+     responding yet?").
+  3. Installs the `mlflow` Python package via pip.
+  4. Creates folders for storing data (`/mlflow/artifacts`) and an optional
+     one-time data import (`/seed`).
+  5. Copies in a startup script (`entrypoint.sh`) that starts the actual
+     MLflow server process when the container launches.
+  6. Declares it listens on port 5000, and sets up a "health check" — the
+     container periodically pings itself on `/health` so Docker can tell if
+     it's actually working or has silently crashed/hung.
+
+What it does once running: keeps a database of every training run (accuracy
+scores, settings used, etc.) and stores the actual trained model files, so
+the `backend` container can ask it "give me the best model you have."
+
+--------------------------------------------------------------------------------
+4.2 — backend (docker/api/Dockerfile)
+--------------------------------------------------------------------------------
+What it is: this project's own Python code (src/cancer_detection), run as a
+FastAPI web server, using PyTorch to actually do the image classification.
+
+What the Dockerfile does, step by step:
+  1. Starts from the same small Python 3.11 base image.
+  2. Installs some Linux system libraries (`build-essential`, `libgl1`,
+     `libglib2.0-0`) that PyTorch and image-processing libraries need under
+     the hood to function — these aren't Python packages, they're low-level
+     OS dependencies.
+  3. Copies in `pyproject.toml` (the project's Python dependency list) and
+     the `src/` code folder.
+  4. Installs PyTorch's CPU-only build FIRST, deliberately, from PyTorch's
+     own download server rather than the default PyPI — because this server
+     has no GPU, so it doesn't need (or want) the much larger GPU version.
+  5. Installs the rest of this project's own dependencies (`pip install .`)
+     — but some of those (image/explainability libraries) can silently pull
+     in a GPU-flavored PyTorch as a side effect, which would then crash at
+     runtime with a confusing error. So step 6 re-installs the CPU build a
+     second time, forcibly, to undo any such side effect. This is a real bug
+     this project hit and fixed — documented directly in the Dockerfile.
+  7. Copies in a startup script, and creates folders for an optional
+     pre-baked model.
+  8. Declares it listens on port 8000, with a health check (allowed a
+     generous 180 seconds of startup time before the first check, since
+     loading a deep-learning model can genuinely take a while).
+
+What it does once running: loads a trained model (from MLflow, or from a
+baked-in copy), and answers `/predict` requests — a photo + patient details
+in, a cancer probability + explanation out.
+
+--------------------------------------------------------------------------------
+4.3 — frontend (frontend/Dockerfile)
+--------------------------------------------------------------------------------
+What it is: the website. Unusually, this Dockerfile has TWO stages glued
+together — a "build" stage and a "run" stage — because the tools used to
+BUILD a website are not the same tools used to SERVE it afterward.
+
+Stage 1 — build the website:
+  1. Starts from `node:20-alpine` — a small Linux image with Node.js (the
+     JavaScript runtime) installed, needed to run the website's build
+     tooling (Vite).
+  2. Installs the exact JavaScript dependencies listed in package.json /
+     package-lock.json.
+  3. Copies in all the frontend source code (the React/TypeScript files).
+  4. Runs `npm run build`, which compiles all that TypeScript/React code
+     down into a handful of plain, optimized HTML/CSS/JavaScript files — the
+     kind any browser can read directly, no special tooling needed.
+
+Stage 2 — actually serve it:
+  5. Starts a FRESH, separate image based on `nginx:1.27-alpine` — nginx is
+     a fast, industry-standard web server whose only job is handing files to
+     browsers (and, here, also forwarding some requests onward — see Part
+     5). Node.js is NOT included in this final image at all — it was only
+     ever needed to do the building in stage 1, and including it in the
+     final image would just waste space for no benefit.
+  6. Copies in an nginx configuration file, and copies the already-built
+     website files from stage 1 into nginx's serving folder.
+  7. Declares it listens on port 80 (the standard "plain website" port),
+     with a health check.
+
+What it does once running: this is what the browser actually connects to —
+serving the website's files, and silently forwarding certain requests to the
+`api` and `mlflow` containers behind the scenes (Part 5).
+
+
+================================================================================
+PART 5 — HOW THE 3 CONTAINERS TALK TO EACH OTHER
+================================================================================
+
+When you start all 3 with Docker Compose, it automatically creates a private
+network that only these containers can see. On that private network, each
+container can reach the others simply by name — e.g. from inside the `api`
+container, the address `http://mlflow:5000` just works, because Docker
+Compose makes the container name itself act like a hostname. This is why the
+`api` container's settings say `MLFLOW_TRACKING_URI=http://mlflow:5000`
+rather than some IP address — the name "mlflow" IS the address, resolved
+automatically.
+
+The browser, however, never talks to `api` or `mlflow` directly. It only
+ever talks to `frontend` (port 3000, or 80 inside the container), because
+that container's nginx server acts as a REVERSE PROXY: it looks at the path
+of each incoming request and quietly forwards it to the right place —
+  - a request to `/api/...`     → forwarded internally to the `api` container
+  - a request to `/mlflow/...`  → forwarded internally to the `mlflow` container
+  - everything else             → served directly as website files
+
+The benefit: the browser (and anyone visiting the site) only ever needs to
+know about ONE address/port. It has no idea there are 3 separate containers
+behind the scenes — as far as it's concerned, it's all "the website."
+
+Startup order also matters, and Docker Compose enforces it:
+  - `api` waits for `mlflow` to report itself healthy before starting (it
+    needs somewhere to fetch a model from)
+  - `frontend` waits for both `api` and `mlflow` before starting
+
+
+================================================================================
+PART 6 — RUNNING IT LOCALLY (ON YOUR OWN PC)
+================================================================================
+
+One command, from the repo root:
+
+    docker compose --project-directory . -f docker/docker-compose.yml up --build
+
+This does two things:
+  1. BUILD — for each of the 3 services, Docker reads its Dockerfile (Part 4)
+     and assembles the image, step by step, exactly as described above.
+  2. UP — starts one container from each freshly-built image, wires them
+     onto the shared private network (Part 5), and starts streaming all
+     3 containers' log output into your terminal at once.
+
+The FIRST time you run this, it's slow (several minutes) — especially the
+`api` image, since it's downloading and installing PyTorch. Docker caches
+each step of the build, though, so if you re-run the command later and
+haven't changed much, most steps are skipped instantly and only the parts
+that actually changed get rebuilt.
+
+Once it's up, on your own machine, you can visit:
+  - http://localhost:3000  — the website
+  - http://localhost:8000/docs — the API's interactive documentation
+  - http://localhost:5000  — the MLflow dashboard
+
+To stop everything: press Ctrl+C in that terminal, or run
+`docker compose --project-directory . -f docker/docker-compose.yml down`
+from another terminal.
+
+
+================================================================================
+PART 7 — HOW IT RUNS ON AWS — THE AUTOMATED PART (GitHub Actions)
+================================================================================
+
+On AWS, it is the exact same 3 containers — but two things differ: WHERE
+they get built, and HOW the finished images travel to the server. Nothing
+about the containers themselves changes.
+
+GitHub Actions is the piece of automation that makes this happen without you
+manually typing commands. Think of it as a robot that watches your GitHub
+repository and, whenever you push code to the `main` branch, automatically
+runs a checklist of commands on a temporary cloud computer that GitHub
+provides for free. That checklist lives in this repo as a YAML file:
+`.github/workflows/deploy.yml`.
+
+What that checklist actually does, step by step:
+
+  STEP 1 — Trigger
+    Runs automatically on every push to `main` that touches deployment-
+    relevant folders (docker/, frontend/, src/, etc.), or can be started
+    manually from GitHub's website ("workflow_dispatch").
+
+  STEP 2 — Build and push (job: build-and-push)
+    On GitHub's temporary cloud machine:
+      a. Logs in to AWS using credentials stored securely as "GitHub
+         secrets" (never visible in the code itself).
+      b. Logs in to Amazon ECR — think of ECR as AWS's own private version
+         of Docker Hub: a storage locker specifically for Docker images.
+      c. Builds all 3 images using the exact same Dockerfiles described in
+         Part 4 — this is the SAME build process as running it locally,
+         just happening on GitHub's computer instead of yours.
+      d. Pushes (uploads) all 3 freshly-built images into that ECR storage
+         locker.
+
+  STEP 3 — Deploy (job: deploy-ec2)
+    Still on GitHub's temporary machine, but now it reaches out and
+    controls your actual AWS server:
+      a. Copies the Docker Compose configuration files to the EC2 server
+         over SSH (a secure remote-terminal connection).
+      b. Sends a script, over that same SSH connection, telling the EC2
+         server to:
+           - log in to ECR itself
+           - PULL (download) the 3 images that were just pushed in Step 2
+             — note: EC2 never builds anything itself, only downloads
+             already-built images. This keeps the small/cheap EC2 box from
+             having to do any heavy building work.
+           - if this is a brand-new/empty server, restore old MLflow run
+             history from a one-time S3 backup, so past training history
+             isn't lost
+           - run `docker compose up`, same as Part 6, just using AWS-
+             specific configuration overlays (a different set of ports,
+             mounted differently, etc.)
+      c. Repeatedly checks (polls) all 3 containers' health-check endpoints
+         for up to 5 minutes. If they don't all come up healthy, it prints
+         out each container's logs and fails loudly — this exists
+         specifically to catch a broken deploy immediately, rather than
+         silently leaving a half-working site live for visitors to find.
+
+In short: GitHub Actions is the thing that automatically builds the
+containers. EC2 itself only ever pulls and runs already-built images.
+
+
+================================================================================
+PART 8 — LOCAL VS. AWS: WHAT'S ACTUALLY DIFFERENT
+================================================================================
+
+               LOCAL (your PC)              AWS (production)
+  Build runs   your own PC, via             GitHub's free cloud runner,
+  on:          `docker compose up --build`  triggered automatically by
+                                             `deploy.yml`
+
+  Images       stay on your PC only         pushed to ECR (AWS's private
+  stored:                                   image storage) so EC2 can
+                                             download them
+
+  Containers   your PC                      the EC2 server, via SSH command
+  run on:                                   from GitHub Actions
+
+  Trigger:     you type the command         a `git push` to `main` (or a
+               yourself, whenever           manual button click)
+
+  Data         a Docker volume on your      a Docker volume on the EC2
+  persists     own disk (thrown away if     server's disk, backed up once
+  in:          you remove it)               to S3 for disaster recovery
+
+The 3 Dockerfiles, the 3 containers, and how they talk to each other (Parts
+4–5) are IDENTICAL in both cases. The only real difference is the extra
+machinery (GitHub Actions + ECR + SSH) needed to move the built images from
+"just built" to "running on a server you don't have physical access to."
+
+
+================================================================================
+PART 9 — QUICK GLOSSARY
+================================================================================
+
+Docker          — Software that builds and runs containers.
+Image           — A built, sealed "box" containing an app and everything it
+                   needs to run. Doesn't run by itself; it's a template.
+Container       — A running instance of an image — the actual live process.
+Dockerfile      — A step-by-step text recipe describing how to build one
+                   image (base system → install things → copy code → what to
+                   run on startup).
+Docker Compose  — A tool that starts several containers together, wires them
+                   onto a shared private network, and manages start order —
+                   driven by a YAML file (docker-compose.yml) listing each
+                   service.
+GitHub Actions  — GitHub's built-in automation robot: runs a checklist of
+                   commands on a temporary cloud computer whenever something
+                   happens in your repo (like a push to main).
+ECR             — Amazon Elastic Container Registry: AWS's private storage
+                   locker for Docker images (like a Docker Hub that only
+                   your AWS account can access).
+EC2             — Amazon Elastic Compute Cloud: a virtual computer you rent
+                   from AWS, billed by the hour it's running. This is the
+                   actual server the hosted site lives on.
+Reverse proxy   — A server that receives requests and silently forwards
+                   each one to the correct backend service based on its
+                   path, so the outside world only ever sees one address.
+Port            — A numbered "door" on a computer that a specific program
+                   listens on (e.g. 3000 for the website, 8000 for the API)
+                   so multiple programs can run on the same machine without
+                   colliding.
+YAML            — A plain-text, indentation-based format for writing
+                   structured configuration/instructions (not a programming
+                   language) — used for Docker Compose files, GitHub Actions
+                   workflows, and this project's ML training configs.
+Health check    — A container periodically testing itself (e.g. "does my
+                   own /health endpoint respond?") so tools like Docker
+                   Compose and GitHub Actions can automatically detect a
+                   silently broken/hung container instead of assuming it's
+                   fine just because it's still running.
+
+
+================================================================================
+END OF DOCUMENT
+================================================================================

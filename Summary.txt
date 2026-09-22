@@ -1,0 +1,1218 @@
+================================================================================
+CANCER DETECTION PROJECT — COMPLETE TECHNICAL SUMMARY
+================================================================================
+This document explains EVERY part of this project in plain language, as if you
+are new to programming and new to AI/machine learning. It also explains WHY
+things were built the way they were, so you can speak to this project
+confidently in a technical interview.
+
+Read it top to bottom once, then use it as a reference.
+
+
+================================================================================
+PART 1 — THE 30-SECOND PITCH (what this project IS)
+================================================================================
+
+This is a web application that looks at a photo of a skin lesion (a mole, spot,
+or growth on skin) taken with a special magnifying camera called a
+"dermatoscope," and predicts whether it is likely to be melanoma (a dangerous
+skin cancer) or benign (harmless).
+
+It is not just a model — it is a full, production-style system:
+
+1. A machine learning MODEL that does the actual prediction (Python, PyTorch)
+2. A TRAINING pipeline that teaches the model using ~33,000 real medical images
+3. An EXPERIMENT TRACKING system (MLflow) that records every training attempt
+4. A WEB API (FastAPI) that lets other programs ask the model for predictions
+5. A WEBSITE (React) that lets a human upload a photo and see the result
+6. DEPLOYMENT infrastructure (Docker + AWS) that runs all of this on the
+   internet, live, 24/7
+7. AUTOMATED TESTING and continuous integration (GitHub Actions) that checks
+   the code every time it changes
+
+This is often called an "end-to-end ML system" — it doesn't just train a model
+in a notebook, it takes that model all the way to a real, working product.
+
+
+================================================================================
+PART 2 — THE PROBLEM AND THE DATA
+================================================================================
+
+2.1 What is melanoma and why does this matter?
+------------------------------------------------
+Melanoma is a type of skin cancer that starts in pigment-producing cells. It's
+one of the more dangerous cancers because it can spread (metastasize) quickly
+if not caught early, but it's also highly curable if caught early. Dermatologists
+use "dermoscopy" — a handheld magnifying device with polarized light — to
+photograph skin lesions in a standardized way that reveals patterns invisible
+to the naked eye. This project tries to automate part of that visual judgment.
+
+2.2 The dataset: ISIC 2020
+------------------------------------------------
+ISIC = "International Skin Imaging Collaboration." It's a real, publicly
+available medical dataset used in a Kaggle competition (SIIM-ISIC Melanoma
+Classification, 2020). Key facts about it:
+
+- ~33,126 dermoscopy images total
+- Only ~2,056 unique PATIENTS contributed those images (each patient has many
+  images of different moles — a median of 12 images per patient)
+- Only ~1.76% of images are malignant (cancerous) — this is called "class
+  imbalance" and it's one of the central technical challenges of the whole
+  project (explained in Part 5)
+- Each image comes with some patient metadata: age, sex (male/female), and
+  the anatomical site the mole is on (torso, head/neck, arms, legs, etc.)
+
+2.3 Where the raw data lives vs. what the code touches
+------------------------------------------------
+Kaggle data is NOT included in the git repository (it's huge — gigabytes of
+images — and has usage restrictions). The user downloads it manually into
+`data/raw/`. The code then processes it into `data/processed/`. Both of these
+folders are treated as "local state," not something checked into git.
+
+
+================================================================================
+PART 3 — HOW A NEURAL NETWORK "SEES" AN IMAGE (background, for beginners)
+================================================================================
+
+If you're new to AI, here's the mental model you need before anything else in
+this document makes sense.
+
+A digital image is just a grid of numbers — for a color photo, each pixel has
+3 numbers (Red, Green, Blue intensity, 0-255). A "Convolutional Neural
+Network" (CNN) is a type of program that has learned, through exposure to
+millions of images, generic patterns: edges, textures, colors, shapes, and
+eventually complex concepts like "this looks like an asymmetric brown blob
+with irregular borders" (a classic melanoma warning sign).
+
+Training such a network from scratch requires huge amounts of data and
+compute. Instead, this project uses "transfer learning": it takes a network
+that was already trained on 1.4 million general photos (ImageNet — cats,
+cars, furniture, etc.) called "EfficientNet," and fine-tunes it on the much
+smaller melanoma dataset. The network already knows how to detect edges and
+textures; training on melanoma data teaches it to combine those into
+melanoma-relevant patterns. This is standard practice in modern computer
+vision and is much more data-efficient than training from zero.
+
+The network doesn't output "yes/no." It outputs a single number called a
+"logit" (any real number), which is converted to a probability between 0 and
+1 using a "sigmoid" function. 0.02 means "2% chance this is malignant"; 0.91
+means "91% chance." A THRESHOLD (e.g. 0.23) is then applied: if probability >=
+threshold, the model says "malignant," otherwise "benign." Where exactly to
+set that threshold is a major design decision discussed in Part 7.
+
+
+================================================================================
+PART 4 — THE MODEL ARCHITECTURE ("multimodal" classifier)
+================================================================================
+
+File: src/cancer_detection/models/classifier.py, backbone.py
+
+The model is called "multimodal" because it doesn't just look at the image —
+it also uses the patient's metadata (age, sex, body location). Two separate
+sub-networks process these two different types of input, and their outputs
+are combined ("fused") before the final decision.
+
+4.1 The image branch — EfficientNet-B4
+------------------------------------------------
+- EfficientNet is a family of CNN architectures from Google (2019) known for
+  getting strong accuracy for relatively few parameters/FLOPs, by scaling
+  network depth, width, and input resolution together in a balanced way
+  ("compound scaling").
+- "B4" is one size in that family — bigger than B0 (fastest/smallest) but
+  much smaller than the largest variants. It has ~19 million parameters and
+  a natural output feature size of 1792.
+- The library `timm` ("PyTorch Image Models") is used to load a version of
+  EfficientNet-B4 pre-trained on ImageNet. The final classification layer
+  (which was trained to recognize 1000 ImageNet classes like "golden
+  retriever") is REMOVED (`num_classes=0`), and a global average pooling
+  layer flattens the last feature map into a single 1792-number vector — a
+  compressed numerical "description" of the image.
+- Configs also exist for EfficientNet-B0, B2, and ResNet-50, so different
+  backbones can be swapped in via a one-line config change (Hydra — see Part
+  9) for experimentation, but B4 is the primary/default model.
+
+4.2 The metadata branch — a small MLP
+------------------------------------------------
+"MLP" = Multi-Layer Perceptron, the simplest kind of neural network (just
+stacked layers of "Linear" transformations and nonlinear activation
+functions). Three patient features go in:
+    [age (standardized number), sex (0/1), anatomical site (encoded 0-1)]
+and it's passed through:
+    Linear(3 → 64) → BatchNorm → ReLU → Dropout(0.3) → Linear(64 → 32) → ReLU
+This turns 3 raw numbers into a 32-number learned representation. BatchNorm
+normalizes the numbers mid-network (helps training stability given that age,
+sex, and site are on very different numeric scales). Dropout randomly zeroes
+some values during training only — a regularization trick that prevents the
+network from over-relying on any single input path (reduces overfitting).
+
+4.3 Fusion head
+------------------------------------------------
+The 1792-number image vector and the 32-number metadata vector are
+concatenated into one 1824-number vector, then passed through:
+    Linear(1824 → 512) → ReLU → Dropout(0.5) → Linear(512 → 1)
+producing a single raw number (the "logit"). Higher = more likely malignant.
+No sigmoid is applied inside the model — that happens later, so the raw
+logit can be used directly with numerically stable loss functions.
+
+4.4 Why metadata at all?
+------------------------------------------------
+Clinically, melanoma risk genuinely correlates with age (older = higher
+prior probability), and certain body sites carry different risk patterns.
+Giving the model this context — the same context a dermatologist would use —
+can improve accuracy beyond image alone. (Note: Part 8 discusses how this
+also introduces an observed "age bias" the team explicitly measured.)
+
+
+================================================================================
+PART 5 — THE CENTRAL TECHNICAL CHALLENGE: CLASS IMBALANCE
+================================================================================
+
+Only 1.76% of the training images are malignant. If you trained a naive
+model, it could get 98.24% "accuracy" by always predicting "benign" and
+never learning anything — completely useless clinically, but a deceptively
+high raw accuracy score. This project mitigates that imbalance FOUR separate
+ways, layered together:
+
+5.1 WeightedRandomSampler (data/datamodule.py)
+------------------------------------------------
+Instead of drawing training images uniformly at random, a custom sampler
+weights each image so that, on average, ~15% of images seen per epoch are
+malignant ("positive_sample_rate: 0.15" in configs/training/default.yaml),
+even though the true rate is 1.76%. This means malignant images get shown to
+the network roughly 8.5x more often than their natural frequency, while
+still covering ~86% of the (much larger) benign pool each epoch.
+   Why not just 50/50 balancing (the "obvious" choice)? The team tried it and
+   found the ~460 malignant training images then each get drawn ~28 times
+   per epoch, and the network essentially "memorizes" those specific 460
+   images (overfits) within one epoch, while ~40% of benign images are never
+   even seen. 15% was chosen as a middle ground — documented directly in the
+   YAML config with the specific numbers that justified it.
+
+5.2 Focal Loss (training/losses.py)
+------------------------------------------------
+Normal classification training uses "Binary Cross-Entropy" (BCE) loss, which
+penalizes wrong predictions. Focal Loss (from a 2017 paper, "Focal Loss for
+Dense Object Detection") is a modification: it adds a `(1 - p_t)^gamma` term
+that DOWN-WEIGHTS "easy" examples the model is already confidently getting
+right, so gradient updates focus more on hard, still-being-learned examples.
+This is useful when there's a flood of "easy negatives" alongside a small
+number of hard positives — exactly this dataset's shape.
+   Two hyperparameters: `gamma` (focusing strength, 2.0 here, the standard
+   default) and `alpha` (a weighting factor, set to 0.5 rather than the
+   "standard" RetinaNet default of 0.25 — the code comments explain this in
+   detail: since the sampler above ALREADY rebalances the batch composition,
+   using 0.25 here would apply a SECOND correction on top, over-correcting
+   in the opposite direction. 0.5 is neutral.)
+
+5.3 Threshold calibration (training/threshold.py)
+------------------------------------------------
+Even a well-trained model's default decision boundary (probability >= 0.5)
+is wrong for this problem, because 0.5 was never calibrated to the true
+prevalence. Instead, after training, the model is run against the validation
+set and the code finds the HIGHEST probability threshold that still catches
+at least 80% of actual cancers ("target_sensitivity: 0.80" — a clinical
+policy choice, documented as deliberate, not a knob idly tuned). This
+threshold (e.g., ~0.23, well below the naive 0.5) is saved to
+`artifacts/threshold.json` and used both for evaluation and, critically, for
+the live web API, so the served product uses a clinically sensible cutoff.
+
+5.4 pAUC-based evaluation (evaluation/metrics.py)
+------------------------------------------------
+Beyond plain accuracy/AUROC, the code also computes "partial AUC above 80%
+sensitivity" (pAUC) — a metric borrowed from the newer ISIC 2024 competition
+— which specifically measures how good the model is ONLY in the operating
+region where it's sensitive enough to be clinically useful. This reflects
+that missing a real cancer (a "false negative") is far more costly than a
+false alarm (a "false positive") in a screening context.
+
+
+================================================================================
+PART 6 — DATA PIPELINE: FROM RAW KAGGLE FILES TO TRAINING BATCHES
+================================================================================
+
+6.1 scripts/prepare_data.py — building patient-safe splits
+------------------------------------------------
+This is arguably the single most important piece of engineering discipline
+in the whole repo, and it's worth understanding deeply for an interview.
+
+The Problem: If you randomly split 33,126 IMAGES into train/validation/test
+sets, you will almost certainly put multiple photos of the SAME patient's
+mole into different splits (since each patient contributes ~12 images on
+average). The model can then partially "cheat" — it learns to recognize a
+specific patient's skin tone, lighting setup, or nearby freckles rather than
+learning genuine, generalizable signs of melanoma. When you then evaluate on
+the "test" split, the score looks great, but it's measuring memorization of
+patients, not real diagnostic skill.
+
+This is not hypothetical here — the code comments state that an earlier,
+naive image-level split leaked 1,656 of 1,657 test images (i.e., nearly the
+entire test set!) and inflated the reported test AUROC to 0.9355, an
+artificially rosy number.
+
+The Fix: `StratifiedGroupKFold` from scikit-learn. This splitting tool
+guarantees that all images belonging to one `patient_id` land in exactly one
+split (train, val, OR test — never split across two), while ALSO keeping the
+~1.76% malignant rate roughly consistent across all three splits ("stratified").
+The function `assert_patient_disjoint()` then double-checks this after the
+split and CRASHES LOUDLY (raises an exception) if any patient ID appears in
+two splits — this is treated as a non-negotiable invariant, not a nice-to-
+have. `tests/unit/test_patient_leakage.py` re-verifies this in CI on every
+code change, so nobody can accidentally reintroduce the leak.
+
+Output: `data/processed/{train,val,test}.csv`, each with columns:
+    image_name, patient_id, target (0/1 label), age_approx, sex,
+    anatom_site_general_challenge
+
+6.2 scripts/resize_images.py — building a fast training cache
+------------------------------------------------
+Raw ISIC images are huge — roughly half are 6000x4000 pixels (24 megapixels).
+Decoding a JPEG that large costs ~300ms of CPU time PER IMAGE, which would
+make the GPU sit idle waiting for images ("starving" it) during training,
+wasting expensive compute time. This script pre-processes every training
+image ONCE: it uses PIL's `.draft()` mode (lets the JPEG decoder work at a
+reduced internal resolution directly, so a 24MP file is never even fully
+decoded in memory) to shrink the SHORTER edge down to a target size
+(default 448 pixels, leaving some headroom above the 384px the model
+actually trains at, so random crops still have room to move), preserving
+aspect ratio, and re-saves as JPEG quality 92. This turns each future image
+read from ~300ms down to ~2ms. This "resized cache" (`data/processed/
+jpeg_448/`) is what training and serving actually read from — never the raw
+originals.
+
+6.3 data/dataset.py — the PyTorch Dataset class
+------------------------------------------------
+`ISICDataset` is a small wrapper matching PyTorch's `Dataset` interface: for
+any index `i`, it (a) reads the CSV row, (b) opens `<image_name>.jpg` from
+the resized cache, (c) applies image transforms (Part 6.5), (d) encodes the
+metadata into a tensor, and (e) returns `(image_tensor, metadata_tensor,
+label)` for training/validation, or `(image_tensor, metadata_tensor)` only
+(no label) for a "test" mode where labels might not exist.
+
+6.4 data/metadata.py — turning categorical patient info into numbers
+------------------------------------------------
+Neural networks only understand numbers, so raw fields like "male"/"female"
+or "torso" must be converted:
+    - age: standardized using FIXED statistics (mean=50, std=15) computed
+      once from the training set — NOT recomputed per split, which would be
+      a subtle form of "data leakage" (letting information from val/test
+      influence how train data is represented).
+    - sex: male=1.0, female=0.0, unknown=0.5 (the midpoint, a common trick
+      to represent "no information" without creating a fake third category)
+    - anatomical site: mapped to 6 categories, encoded as an ordinal value
+      from 0 to 1 (e.g., head/neck=0, torso=3/5, etc.), unknown=0.5 again.
+This is a hand-written, deterministic (not learned) encoder — simple and
+fully reproducible, which matters because the identical encoder is reused at
+serving time so a live prediction is processed exactly the way training data
+was.
+
+6.5 data/transforms.py — image augmentation, and why it's dermoscopy-aware
+------------------------------------------------
+Uses the `albumentations` library (a fast image-augmentation toolkit) to
+define THREE different sets of transforms:
+
+  a) get_train_transforms(): applied ONLY during training, and involves
+     randomness — every time the model sees "the same" image, a slightly
+     different version is generated. This artificially expands the effective
+     size and diversity of the training set and prevents overfitting to
+     exact pixel patterns.
+       - RandomResizedCrop: simulates different zoom levels
+       - Horizontal/Vertical flips + 90-degree rotations: skin lesions have
+         no natural "up" direction, so these are safe, meaning-preserving
+         transformations (unlike, say, flipping a photo of digit "6" to "9")
+       - ShiftScaleRotate, HueSaturationValue, RandomBrightnessContrast:
+         simulates variation in imaging equipment / lighting / device color
+         calibration across different clinics
+       - CoarseDropout: randomly blacks out small rectangular patches,
+         simulating hair or ruler markings that commonly appear in real
+         dermoscopy photos
+       - ImageCompression / Downscale / blur: because EVERY training image
+         went through the identical resize+recompress pipeline (Part 6.2),
+         the model could otherwise learn to recognize "the training set's
+         specific JPEG compression fingerprint" as a spurious shortcut.
+         Randomly re-compressing/blurring some training images at varying
+         quality breaks that shortcut and forces the model to rely on actual
+         lesion content instead. This exact concern — spurious correlation
+         with image-processing artifacts rather than real lesion features —
+         later becomes the entire subject of scripts/diagnose.py (Part 8).
+       - GaussNoise: simulates camera sensor noise
+
+  b) get_val_transforms(): used for validation, test, AND live serving —
+     purely deterministic (no randomness), because you want a stable,
+     repeatable score when checking model quality or making a real
+     prediction. It uses `SmallestMaxSize` + `CenterCrop` to make the image
+     square WITHOUT distorting it.
+        IMPORTANT DESIGN DECISION: this deliberately does NOT use a plain
+        resize-to-square (`A.Resize`). ISIC images are almost all a 3:2
+        aspect ratio, so stretching them into a square would squash every
+        lesion horizontally by 1.5x — and since training uses
+        RandomResizedCrop (which preserves aspect ratio), a squashing
+        validation transform would put evaluation in a DIFFERENT geometric
+        "space" than training, silently hurting accuracy. This kind of
+        "train/serve skew" is a classic, easy-to-miss ML production bug, and
+        this codebase explicitly guards against it (also flagged as an
+        "invariant" in CLAUDE.md).
+
+  c) get_tta_transforms(): "TTA" = Test-Time Augmentation. Instead of
+     scoring an image once, the SAME image is scored 8 different ways (the 8
+     "dihedral symmetries of a square": identity, horizontal flip, vertical
+     flip, and 3 rotations, plus 2 combinations) and the 8 probabilities are
+     averaged. This produces a more stable, less noisy final prediction (it
+     smooths out the model's sensitivity to any one specific
+     orientation/crop) and also gives a measure of prediction UNCERTAINTY —
+     if the 8 passes disagree a lot (high standard deviation), that's a
+     signal the prediction is less trustworthy.
+        Subtle but important bug fixed here: albumentations' built-in
+        `A.RandomRotate90` picks a RANDOM rotation even when told "always
+        apply" (p=1.0) — so naively using it for "deterministic" TTA would
+        silently make the SAME uploaded image get slightly different
+        predictions on different requests, which is a serious trust problem
+        for a medical tool (a doctor re-uploading the same photo should get
+        the same answer). The fix: a custom `np.rot90`-based lambda with a
+        FIXED rotation amount, guaranteeing bit-for-bit reproducibility.
+
+6.6 data/datamodule.py — orchestrating it all for PyTorch Lightning
+------------------------------------------------
+`ISICDataModule` is a PyTorch Lightning "DataModule" — a standard container
+that bundles "how to build train/val/test DataLoaders" into one reusable
+object, so the training script (`train.py`) doesn't need to know these
+details. It wires together the CSVs, the resized image cache, the metadata
+encoder, the right transforms per split, and the WeightedRandomSampler
+(train split ONLY — validation and test are scored on the TRUE, natural
+distribution, since that's what matters for an honest performance estimate).
+`num_workers: 0` is set deliberately (not left at some "sensible default")
+because on Windows, PyTorch's multi-process DataLoader workers are SPAWNED
+fresh (not "forked" like on Linux), and doing that every epoch was
+discovered to deadlock. This is documented in both the code and CLAUDE.md as
+a Windows-specific gotcha to remember before "helpfully" raising it.
+
+
+================================================================================
+PART 7 — TRAINING PIPELINE (how the model actually learns)
+================================================================================
+
+7.1 The tools: PyTorch, PyTorch Lightning, Hydra, MLflow
+------------------------------------------------
+- PyTorch: the core deep learning library — defines tensors (multi-
+  dimensional number arrays), automatic differentiation (computing how to
+  adjust each of the model's millions of internal numbers to reduce error —
+  "backpropagation"), and GPU acceleration.
+- PyTorch Lightning: a higher-level wrapper around raw PyTorch that removes
+  a lot of repetitive "boilerplate" code (training loops, device management,
+  checkpoint saving, mixed-precision handling) so the model code
+  (training/lit_module.py) can focus purely on defining WHAT happens each
+  training step, not the mechanical HOW.
+- Hydra: a configuration-management library from Facebook/Meta. Instead of
+  hardcoding hyperparameters (learning rate, batch size, which backbone) in
+  Python code, they live in YAML files under configs/, which compose
+  together (configs/config.yaml pulls in data/isic.yaml + model/
+  efficientnet_b4.yaml + training/default.yaml). Any value can be overridden
+  from the command line without touching code, e.g.:
+      python scripts/train.py training.lr=1e-4 model=efficientnet_b2
+  and it even supports "sweeps" — trying multiple hyperparameter
+  combinations automatically in one command (`-m` multirun flag).
+- MLflow: an experiment-tracking server. Every training run automatically
+  logs its hyperparameters, metrics over time (loss, AUROC per epoch), the
+  final trained model file, and other artifacts (like the calibrated
+  threshold), all viewable in a web dashboard. This makes results
+  reproducible and comparable across many experiments — critical when you
+  might run dozens of training attempts with different settings.
+
+7.2 training/lit_module.py — the training/validation/test loop
+------------------------------------------------
+`MelanomaLitModule` wraps the `MelanomaClassifier` model (Part 4) and
+defines exactly what happens for one batch of data in each phase:
+  - training_step: run the model, compute Focal Loss, log it, track running
+    AUROC (Area Under the ROC Curve — a standard metric for how well a model
+    ranks positive examples above negative ones, from 0.5=random guessing to
+    1.0=perfect)
+  - validation_step / on_validation_epoch_end: same, but no learning happens
+    — this just measures how well the CURRENT model generalizes to data it
+    wasn't trained on, which decides which checkpoint is "best" and when to
+    stop training
+  - test_step / on_test_epoch_end: a fuller battery of clinical metrics
+    (sensitivity, specificity, PPV, NPV, pAUC) computed once at the very end
+    against the held-out test set, calculated with a SPECIFIC decision
+    threshold rather than the default 0.5
+  - configure_optimizers: sets up "AdamW" (a standard, robust gradient-
+    descent-based optimizer used almost universally in modern deep
+    learning) plus a learning-rate SCHEDULE: a brief "warmup" period (LR
+    starts small and ramps up) followed by "cosine annealing" (LR smoothly
+    decays toward a tiny value by the end of training). This schedule is
+    sized by the ACTUAL number of optimizer steps that will occur in this
+    specific run (not a hardcoded guess), because an earlier bug caused
+    early-stopped runs to end with barely any LR decay, meaning the model
+    never got to fine-tune with a small, careful learning rate in its final
+    epochs.
+
+7.3 scripts/train.py — the entrypoint that ties everything together
+------------------------------------------------
+Running `python scripts/train.py` does, roughly:
+  1. Sets random seeds for reproducibility
+  2. Connects to the MLflow tracking server (hosted on AWS EC2 by default,
+     or overridable to a local server)
+  3. Builds the DataModule and the LitModule from the Hydra config
+  4. Configures callbacks: EarlyStopping (stop if validation AUROC hasn't
+     improved in a while, defined in units of "validation checks," not
+     epochs, because the code validates 4 times per epoch — not just once —
+     to get a finer-grained read on when the model peaks), ModelCheckpoint
+     (saves the top 3 best-scoring model snapshots to disk during training),
+     and LearningRateMonitor (logs the LR schedule to MLflow for inspection)
+  5. Trains via `trainer.fit(...)`
+  6. CRITICALLY: after training finishes, it does NOT just save whatever
+     model is currently in memory. PyTorch Lightning leaves the FINAL
+     epoch's weights loaded after fit() completes — but the final epoch is
+     usually the MOST OVERFIT one, not the best one. So the script explicitly
+     reloads the BEST checkpoint (as measured by validation AUROC) from disk
+     into a fresh model object before doing anything else. This is called
+     out as one of the most important invariants of the whole project
+     (documented in CLAUDE.md) — an earlier bug shipped the wrong, overfit
+     model to production because this reload step was missing.
+  7. Runs threshold calibration (Part 5.3) using that same best/deployable
+     model, through the exact 8-pass TTA pipeline the live API uses — so the
+     saved threshold matches how predictions will actually be scored in
+     production, not a different, faster, single-pass approximation.
+  8. Logs the final model to MLflow (`mlflow.pytorch.log_model(...,
+     registered_model_name="melanoma-classifier")`), which both stores the
+     model file as a versioned "artifact" and registers it in MLflow's Model
+     Registry under a name, with a "champion" alias tag for organizational
+     clarity in the MLflow UI.
+  9. A background "atexit guardian" makes sure the MLflow run's status is
+     always correctly finalized as FINISHED or FAILED — even if the training
+     process crashes or the network connection to MLflow drops — first
+     trying the normal MLflow HTTP client, and falling back to writing
+     directly into the underlying SQLite database file if that fails. This
+     prevents runs from being stuck showing "RUNNING" forever, which would
+     clutter the dashboard and confuse anyone comparing runs later.
+
+7.4 scripts/evaluate.py — honest, held-out scoring
+------------------------------------------------
+This script deliberately never touches train.csv or val.csv — it scores
+ONLY data/processed/test.csv, a split that had zero influence on training or
+threshold calibration. It:
+  - Finds the best checkpoint on disk automatically (by parsing the AUROC
+    encoded right in the checkpoint's filename, e.g. "epoch=2-auroc=0.9220
+    .ckpt"), or accepts an explicit path
+  - Computes the full metric suite (AUROC, F1, sensitivity, specificity,
+    PPV, NPV, pAUC) plus "bootstrap confidence intervals" — a statistical
+    technique that resamples the test set thousands of times (with
+    replacement) to estimate how much a metric like AUROC might vary just
+    due to random luck in which 1,657-ish test images happened to be
+    included, giving a range like "AUROC 0.91 [0.87, 0.95]" instead of a
+    single potentially-misleading number
+  - Computes "Expected Calibration Error" (ECE) — how well the predicted
+    PROBABILITIES themselves match reality (if the model says "70% chance
+    malignant" a hundred times, roughly 70 of those should actually be
+    malignant for the model to be well-"calibrated" — critical for a
+    clinical tool since doctors may reason about the probability value
+    itself, not just the binary yes/no)
+  - Breaks results down by AGE BAND (under 45 / 45-65 / 65+) — this was
+    added after the team noticed the model performs notably worse on
+    younger patients (documented with specific numbers: on one run, mean
+    malignant-probability was 0.21 for under-45 vs 0.60 for 45-65, and 5 of
+    7 missed melanomas were in patients under 45). This is a genuine,
+    intentionally-surfaced FAIRNESS/BIAS finding, not swept under the rug —
+    see Part 8.
+  - Writes everything to artifacts/test_metrics.json, which is the exact
+    file the live website's "Test Metrics" page reads and displays (Part
+    10) — so the numbers a visitor sees on the site are the same numbers
+    this rigorous, held-out evaluation produced, not hand-picked marketing
+    numbers.
+  - Also fits and saves an "Out-Of-Distribution" (OOD) detector (Part 8.2)
+    using training embeddings, so a bare API container (no training dataset
+    on it) can still download a working OOD detector instead of running
+    without one.
+
+7.5 Other scripts
+------------------------------------------------
+- scripts/diagnose.py: covered in depth in Part 8 (the "does the model
+  actually see the lesion, or a shortcut?" audit tool).
+- scripts/republish_checkpoint.py: a manual escape hatch — lets you take a
+  DIFFERENT checkpoint than whatever was auto-logged (e.g. if you realize
+  the wrong epoch got shipped) and republish it to MLflow as the served
+  model without a full retrain, recalibrating the threshold in the process.
+- scripts/prepare_mlflow_seed.py: packages up the local MLflow database +
+  artifacts for upload to AWS S3, so a freshly-deployed EC2 server can be
+  "seeded" with prior run history instead of starting completely blank.
+
+
+================================================================================
+PART 8 — TRUSTWORTHINESS: EXPLAINABILITY, UNCERTAINTY, AND BIAS AUDITING
+================================================================================
+This section covers features that exist specifically because this is a
+MEDICAL prediction tool, where "the model said so" is not good enough — you
+need to be able to inspect WHY, flag when it might be wrong, and understand
+its failure modes.
+
+8.1 GradCAM / HiResCAM — visual explainability (explainability/gradcam.py)
+------------------------------------------------
+"GradCAM" (Gradient-weighted Class Activation Mapping) is a well-known
+technique for visualizing WHICH PART of an input image most influenced a
+CNN's decision, producing a "heatmap" overlay (red/warm = influential,
+blue/cool = not) on top of the original photo. This lets a user (or a
+developer debugging the model) SEE whether the model is "looking at" the
+actual lesion, versus some irrelevant part of the image.
+   This project specifically uses "HiResCAM," a refinement of vanilla
+GradCAM. Vanilla GradCAM computes an average gradient across the whole
+spatial feature map, which the code comments note tends to be dominated by
+high-activation pixels near the image BORDER, producing a systematic (and
+misleading) "hotspot in the top-right corner" artifact regardless of where
+the actual lesion is. HiResCAM instead keeps the gradient signal spatially
+localized (element-wise multiplication rather than global averaging), which
+suppresses that border artifact and produces heatmaps that track the lesion
+much more faithfully.
+   Because the model takes TWO inputs (image + metadata) but GradCAM only
+knows how to explain single-input models, a small wrapper class
+(`_ImageOnlyWrapper`) "freezes" the metadata as a constant and exposes a
+single-image-in interface, so GradCAM's gradient math only flows through
+the image branch — which is exactly what you want, since you're explaining
+what the model saw, not why the patient's age mattered.
+   Another subtlety: the heatmap is always generated for whichever class the
+model actually PREDICTED (via `target_category=label`), not blindly always
+"malignant" — because GradCAM applies a ReLU (zeroes out negative values)
+internally, and targeting the wrong/opposite class would zero out the real
+evidence and produce meaningless noise.
+
+8.2 Out-Of-Distribution (OOD) Detection (serving/ood.py)
+------------------------------------------------
+The model was trained ONLY on standardized dermoscopy photos (taken with a
+proper clinical dermatoscope device). If someone uploads a random phone
+photo, a screenshot, or a heavily compressed image from a random website,
+the model will still confidently output SOME probability — but that number
+is not trustworthy, because the image doesn't resemble anything the model
+actually learned from. This module tries to detect and flag that situation.
+
+How it works, step by step (this is genuinely sophisticated statistics, good
+interview material):
+  1. At startup (or once via evaluate.py), sample ~2048 real training images
+     and run them through the model's IMAGE BACKBONE ONLY (not the full
+     classifier) to get their raw 1792-number "embeddings" (a numeric
+     fingerprint of what the network "sees" in each image, before it's
+     turned into a final decision).
+  2. These 1792-dimensional embeddings are too high-dimensional to safely
+     compute a covariance matrix from only ~2048 samples (roughly 1
+     sample per dimension is numerically unstable/"singular" — you can't
+     reliably invert such a matrix). So PCA (Principal Component Analysis,
+     a standard dimensionality-reduction technique) first projects each
+     embedding down to just 64 numbers, capturing the directions of
+     greatest variation in the data. Now there are ~32 samples per
+     dimension, which is stable enough.
+  3. In that reduced 64-dimensional space, fit a "Mahalanobis distance" —
+     essentially a smarter version of "how far is this point from the
+     average," that accounts for the actual shape/spread of the training
+     data cloud (distances along directions where training data varies a
+     lot count for less than distances along directions where training data
+     is tightly clustered). A small "shrinkage" correction blends the
+     estimated covariance with a scaled identity matrix, keeping it
+     numerically well-behaved.
+  4. A THRESHOLD is set at the 99th percentile of distances measured on a
+     HELD-OUT slice of the training sample (not the same slice used to fit
+     the statistics — fitting AND calibrating a threshold on the exact same
+     data would be a subtle form of overfitting/leakage that systematically
+     underestimates real-world distances, explained directly in the code
+     comments).
+  5. At prediction time, the uploaded image's embedding is projected the
+     same way, and its distance is compared to that threshold. If it's
+     farther than 99% of legitimate training images, the API flags
+     `out_of_distribution: true` and reports the raw distance
+     (`ood_distance`) — this shows up as a warning in the web UI (Part 10),
+     so a user knows to treat that particular prediction skeptically.
+  6. This whole detector is cheap and small enough to save/load as a
+     compressed `.npz` file (`artifacts/ood_detector.npz`) and get logged
+     to MLflow — so a lightweight API server that doesn't have the training
+     dataset locally can still download a working detector instead of
+     silently running with this safety feature disabled.
+
+8.3 diagnose.py — auditing for spurious shortcuts ("Clever Hans" effects)
+------------------------------------------------
+This is one of the most conceptually interesting parts of the project and a
+strong interview talking point about ML SKEPTICISM/rigor.
+
+The concern: every SINGLE training image passed through the SAME resize +
+re-compression pipeline (Part 6.2). It's entirely possible — and a
+well-known failure mode in ML — for a model to partly learn to recognize
+THAT specific processing fingerprint (subtle JPEG compression artifacts,
+resampling blur patterns) rather than genuine lesion features. If that
+happened, the model would look great on the test set (which went through
+the identical pipeline) but perform much worse — or even nonsensically —
+on a real web-uploaded photo, which was processed completely differently
+by someone's phone camera and a different website's image pipeline.
+
+This script tests exactly that hypothesis by scoring FOUR groups of images:
+  - train: images the model trained on (a "memorization ceiling" reference)
+  - test: held-out images, straight from the resized cache, unmodified
+  - degraded: the SAME test images, but artificially "roughed up" to LOOK
+    like a typical low-quality web download — center-cropped to a square,
+    downsampled hard, and round-tripped through a lossy JPEG re-encode at
+    quality 60 (mimicking common social-media/website image processing).
+    Crucially, none of these operations touch the actual lesion content —
+    only its pixel/compression "packaging."
+  - custom: any real, arbitrary image files the user points it at
+
+If the model genuinely understands lesions, its predictions on "test" and
+"degraded" versions of the SAME underlying images should be very similar —
+same lesion, same verdict. If instead the "degraded" group's predicted
+probabilities collapse dramatically toward a benign-leaning median compared
+to "test," that's direct evidence the model is at least partially relying
+on an acquisition-pipeline shortcut rather than the lesion itself — meaning
+real web uploads would systematically read too benign. The script prints
+side-by-side statistics (median/mean/p90/max probability, and sensitivity/
+specificity broken out per group) so this can be measured concretely,
+not just suspected.
+
+8.4 The "confidence" and "tta_std" outputs — communicating uncertainty
+------------------------------------------------
+Beyond the raw probability, every prediction also reports:
+  - `tta_std`: the standard deviation across the 8 TTA passes (Part 6.5c).
+    If the 8 slightly-different views of the SAME image produce wildly
+    different probabilities, that disagreement itself is a signal of an
+    unreliable/borderline prediction, surfaced directly to the end user.
+  - `confidence`: NOT distance from 0.5, but distance from the model's
+    actual CALIBRATED decision threshold (which, remember, is often well
+    below 0.5, like ~0.23), normalized to a 0-1 scale. The code explicitly
+    documents why this distinction matters: since the real decision boundary
+    sits below 0.5, a prediction that's just barely past that boundary
+    should read as "low confidence" — using a fixed 0.5 reference would
+    misrepresent how close a call actually was relative to the model's real
+    operating point.
+
+
+================================================================================
+PART 9 — SERVING: HOW A PREDICTION ACTUALLY HAPPENS LIVE (FastAPI backend)
+================================================================================
+
+File: src/cancer_detection/serving/api.py, predictor.py, model_uri.py, schemas.py
+
+9.1 FastAPI — the web framework
+------------------------------------------------
+FastAPI is a modern Python web framework for building APIs (a way for
+programs — like the React website — to talk to the Python backend over
+HTTP). It automatically validates incoming requests against defined "schemas"
+(Pydantic models) and auto-generates interactive API documentation
+(`/docs`).
+
+9.2 Model loading: which model gets served, and how it's chosen
+------------------------------------------------
+`serving/model_uri.py` implements the logic for "which trained model should
+this API instance actually load?" Resolution order:
+  1. An explicit `MODEL_URI` environment variable, if set (e.g., to pin a
+     specific model deliberately)
+  2. Otherwise, automatically query MLflow for the FINISHED (successfully
+     completed) run with the HIGHEST validation AUROC that has a logged
+     model artifact, and use that.
+This means simply running a new, better training run and letting it
+complete is enough to make the live API automatically start serving the
+improved model on its next restart — no manual model-selection step needed.
+Changing the metric key (`val/auroc`) or the artifact name (`model`)
+anywhere would silently break this resolution, which is why CLAUDE.md calls
+this "the MLflow contract between training and serving" out explicitly as
+something not to break casually.
+
+9.3 The Predictor class — the actual inference engine
+------------------------------------------------
+`Predictor` is created ONCE when the API server starts (not per-request,
+which would be far too slow — loading a deep learning model takes real
+time). It:
+  - Loads the model weights via `mlflow.pytorch.load_model(...)`, using
+    `map_location` so a model trained on a GPU machine can still be loaded
+    correctly on a CPU-only server (the AWS deployment intentionally runs
+    the API on CPU, not GPU, to keep hosting costs low — a single image
+    prediction with 8-pass TTA is fast enough on CPU for this use case).
+  - Loads the calibrated threshold: first checks a local file
+    (`artifacts/threshold.json`), then falls back to downloading it as an
+    MLflow artifact directly from the specific run that produced the loaded
+    model (so the threshold always stays paired with the correct model,
+    even redeployed on a bare server with no local files), and finally
+    falls back to the un-calibrated default of 0.5 with a warning if
+    neither is available.
+  - Similarly loads (or fits, or downloads) the OOD detector (Part 8.2).
+  - Exposes `.predict(image_array, metadata_row, return_gradcam)`, which:
+      a) Encodes metadata the same way training data was encoded
+      b) Runs the 8-pass TTA (Part 6.5c) and averages the probabilities
+      c) Computes the OOD distance/flag if enabled
+      d) Compares the averaged probability to the calibrated threshold to
+         produce the final binary label
+      e) Computes `confidence` and `tta_std` (Part 8.4)
+      f) Optionally generates a GradCAM heatmap and encodes it as a base64
+         PNG string (so it can be sent as plain text inside a JSON response
+         and displayed directly as an `<img>` in the browser)
+
+9.4 Graceful startup — a subtle but important production detail
+------------------------------------------------
+Loading the model (downloading weights, initializing PyTorch, etc.) can take
+tens of seconds. If the API server BLOCKED on that before it started
+answering ANY requests, Docker's health-check system (which repeatedly
+pings `/health` right after container start to decide "is this thing alive
+yet?") would see the server as unresponsive and potentially restart it in a
+loop, or the frontend proxy would show errors during a normal, expected
+startup window. The fix: the API starts answering `/health` IMMEDIATELY
+(reporting `model_loaded: false` while it's still loading, always HTTP 200
+so Docker doesn't consider it "unhealthy"), while the actual model loading
+happens in a background thread (`asyncio.create_task(asyncio.to_thread(...))`).
+Prediction endpoints correctly return HTTP 503 ("Service Unavailable") until
+loading finishes — a real, though temporary, degraded state rather than a
+crash.
+
+9.5 API endpoints
+------------------------------------------------
+  - GET /health — liveness check (always 200; reports whether model is
+    ready)
+  - GET /metadata — reports the currently active threshold, TTA pass count,
+    device (cpu/cuda), and whether OOD detection is active
+  - GET /test-metrics — serves the full evaluation payload (Part 7.4) that
+    powers the website's "model performance" page — either from a local
+    file baked into the Docker image, or downloaded fresh from the best
+    MLflow run, and cached in memory afterward
+  - POST /predict — the main endpoint. Accepts a multipart form: an image
+    file plus age/sex/anatomical-site fields plus a boolean for whether to
+    compute GradCAM (skippable to save compute if only the number is
+    needed). Returns a structured JSON response (Pydantic `PredictResponse`
+    schema, Part 9.6) with strict typing and inline documentation for every
+    field, which also drives the auto-generated `/docs` page.
+
+9.6 CORS and reverse-proxy design
+------------------------------------------------
+The API sets `root_path="/api"` because, in the deployed environment, an
+nginx web server sits in front of everything and forwards requests: anything
+hitting `/api/...` on port 80/3000 gets routed to this FastAPI service, and
+`/mlflow/...` gets routed to the MLflow server — meaning the actual browser
+only ever needs to know about ONE port (the site's own), never separate
+ports for the API and MLflow. In local development (no nginx), CORS
+("Cross-Origin Resource Sharing," a browser security mechanism that blocks
+JavaScript on one origin/port from calling an API on a different one unless
+explicitly allowed) is configured to permit the Vite dev server's default
+port (3000) plus the hosted frontend's IP.
+
+
+================================================================================
+PART 10 — THE FRONTEND WEBSITE (React + TypeScript)
+================================================================================
+
+Files: frontend/src/*.tsx, api/client.ts
+
+10.1 Core technology choices
+------------------------------------------------
+- React: the dominant JavaScript library for building interactive user
+  interfaces out of reusable, composable "components" (self-contained
+  pieces of UI + logic — e.g., `<AnalysisTool />`, `<ResultCard />`).
+- TypeScript: JavaScript with an added static type system, catching many
+  bugs (wrong data shapes, typos in property names) at compile-time rather
+  than at runtime in a user's browser. Every API response is typed
+  (`PredictResponse`, `TestMetrics`, `MLflowRun`, etc.) to match exactly
+  what the Python backend actually sends.
+- Vite: a fast modern build tool/dev server for JavaScript/TypeScript
+  projects (replaces older, slower tools like Webpack for most use cases).
+- Tailwind CSS: a "utility-first" CSS framework — instead of writing
+  separate CSS files, styling is expressed directly in the HTML/JSX via
+  short utility class names (e.g. `rounded-2xl border border-ink-600/70`).
+- framer-motion: an animation library for smooth transitions (fade-ins,
+  hover effects, the loading-spinner animation during prediction).
+- lucide-react: a set of clean, consistent icon components (upload icon,
+  alert icon, etc.).
+
+10.2 Page structure (App.tsx)
+------------------------------------------------
+A single-page app assembled from top-level sections in order:
+  Navbar → Hero (intro/landing section) → AnalysisTool (the actual upload +
+  predict UI) → TestMetricsSection (charts/numbers from the model's held-out
+  evaluation) → ModelStats (MLflow training-run history/leaderboard) →
+  Footer
+
+10.3 AnalysisTool.tsx — the interactive core of the site
+------------------------------------------------
+This is the component a visitor actually uses:
+  - A drag-and-drop (or click-to-browse) image upload zone
+  - Patient metadata inputs: an age SLIDER (0-90), a 3-way sex toggle
+    (male/female/unknown), and a dropdown for anatomical site — matching
+    EXACTLY the categories the backend's MetadataEncoder understands
+    (Part 6.4), so what the user picks maps directly and unambiguously onto
+    what the model was trained to interpret
+  - A "Run Analysis" button that calls `predict()` (api/client.ts), sending
+    a `multipart/form-data` HTTP POST request bundling the image file plus
+    the metadata fields — the same shape the FastAPI endpoint expects
+  - Three UI states, each its own rendered view: an empty "waiting for
+    input" state, a loading state (animated, explicitly communicating "8-
+    pass TTA inference" is running so the wait feels purposeful rather than
+    like a hang), and a results state showing the returned `ResultCard`
+    (probability, label, confidence, GradCAM heatmap image, OOD warning if
+    flagged, etc.)
+  - Error handling: if the API call fails (e.g., HTTP 503 because the model
+    hasn't finished loading yet), a clear, human-readable error banner is
+    shown, with an extra hint specifically for the "model not loaded" case.
+
+10.4 api/client.ts — the typed bridge between frontend and backend
+------------------------------------------------------------------
+This file is the single place all HTTP calls to the FastAPI backend AND
+directly to the MLflow REST API live, each wrapped in a typed function
+(`predict`, `fetchTestMetrics`, `checkApiHealth`, `fetchApiMetadata`,
+`fetchMLflowStats`). It uses environment variables (`VITE_API_URL`,
+`VITE_MLFLOW_URL`) so the exact same frontend code works unmodified whether
+it's running locally against `localhost:8000` or in production hitting the
+real deployed API through nginx's `/api` proxy path.
+   A notable piece of logic: MLflow's own dashboard summary only exposes
+each training run's metrics as of its VERY LAST recorded step — but this
+project validates 4 times per epoch and wants the PEAK validation AUROC
+(which is what actually determines "the best model," not whatever the final
+validation check happened to show). So `fetchPeakValMetrics()` fetches the
+FULL metric history for each run via MLflow's `metrics/get-history` API,
+scans it client-side to find the actual peak, and also pulls the F1/loss
+values recorded at that exact same step — reproducing, on the frontend, the
+same "peak, not final" philosophy the training pipeline itself follows
+server-side (`training/callbacks.py`, Part 7.6-adjacent).
+
+10.5 Other components (brief)
+------------------------------------------------
+  - ResultCard.tsx: renders one prediction's full result — probability,
+    verdict, confidence bar, the GradCAM overlay image, OOD warning banner
+  - TestMetrics.tsx: charts and numbers pulled from `/test-metrics` (ROC
+    curve, calibration/reliability diagram, sensitivity/specificity at the
+    chosen threshold, confidence intervals)
+  - ModelStats.tsx: a leaderboard-style view of past MLflow training runs
+  - Navbar.tsx / Footer.tsx / Hero.tsx: standard page chrome/branding
+
+
+================================================================================
+PART 11 — DEPLOYMENT: DOCKER, DOCKER COMPOSE, AND AWS
+================================================================================
+
+11.1 Why Docker?
+------------------------------------------------
+Docker packages an application together with everything it needs to run
+(exact library versions, system dependencies) into a single, portable unit
+called a "container" or "image." This guarantees the app runs identically
+on the developer's laptop, in CI, and on the production server — eliminating
+"works on my machine" problems.
+
+11.2 The three services (docker/docker-compose.yml)
+------------------------------------------------
+The whole stack is defined as three cooperating Docker containers, managed
+together via `docker compose`:
+  1. `mlflow` — the experiment-tracking server, its data persisted in a
+     Docker-managed "named volume" (`mlflow-data`) so history survives
+     container restarts/redeploys
+  2. `api` — the FastAPI inference service (built via docker/api/Dockerfile,
+     a CPU-only Python 3.11 image; notably installs PyTorch's CPU-specific
+     build TWICE — once before, once after the main `pip install .` — with a
+     comment explaining that other dependencies like `timm`/`grad-cam` can
+     otherwise silently pull in a mismatched GPU-flavored torchvision build
+     that then fails at runtime with an obscure "operator does not exist"
+     error; installing CPU torch again afterward, forcibly, avoids that)
+  3. `frontend` — the built React app, served by nginx (a standard, fast
+     production web server), which also acts as the REVERSE PROXY routing
+     `/api` and `/mlflow` paths to the other two containers (Part 9.6)
+
+Several docker-compose "overlay" files exist for different contexts
+(`.ecr.yml` for pulling from Amazon's container registry instead of
+building locally, `.ec2.yml` for production-specific settings, `.seed.yml`/
+`.host-data.yml` for populating or inspecting the MLflow history) — these
+are layered together with `-f` flags rather than duplicating the whole
+config per environment.
+
+11.3 CI/CD: GitHub Actions
+------------------------------------------------
+Two automated workflows live in `.github/workflows/`:
+
+  ci.yml ("Continuous Integration") — runs automatically on every push to
+  main/develop and every pull request:
+    - Installs a CPU-only PyTorch build (keeps CI fast — no GPU available or
+      needed in CI runners, and this project's tests use tiny synthetic
+      fixtures, not real trained models, so CPU is plenty)
+    - Runs `ruff check` (a fast Python linter — flags style issues, unused
+      imports, likely bugs) and `ruff format --check` (fails the build if
+      code isn't formatted consistently — enforces one shared style
+      automatically instead of via code-review nitpicking)
+    - Runs `mypy` (static type checking for Python — catches type mismatches
+      before runtime) — currently configured `continue-on-error: true`,
+      meaning it reports problems but doesn't fail the build yet ("non-
+      blocking until a baseline is established" — a common, pragmatic
+      strategy when adopting strict typing on an existing codebase
+      incrementally rather than all at once)
+    - Runs the unit test suite with coverage reporting
+    - Runs the integration test suite
+    - Uploads a coverage report
+
+  deploy.yml ("Deploy stack") — runs on pushes to `main` that touch
+  deployment-relevant paths (docker/, frontend/, src/, etc.), or can be
+  triggered manually:
+    - Builds all three Docker images and pushes them to Amazon ECR (Elastic
+      Container Registry — AWS's private Docker image storage)
+    - SSHes into the production EC2 server, pulls the freshly-pushed
+      images, and restarts the stack
+    - Handles first-time MLflow history "seeding" from an S3 backup if the
+      server's data volume is empty (e.g., after provisioning a brand-new
+      EC2 instance), while being careful never to accidentally overwrite
+      existing production tracking data
+    - Polls all three services' health endpoints after restart and fails
+      the deploy loudly (printing container logs) if the stack doesn't come
+      up healthy within a time budget, rather than silently leaving a
+      half-broken deployment live
+
+11.4 Why AWS EC2 + ECR (rather than something like a serverless platform)?
+------------------------------------------------
+The API needs to keep a multi-hundred-megabyte PyTorch model loaded in
+memory continuously to serve predictions quickly, and MLflow needs a
+long-lived, stateful server — both are a natural fit for a persistent EC2
+virtual machine rather than short-lived "serverless function" platforms.
+There is no AWS Elastic IP configured (a fixed public IP), which is
+explicitly called out in CLAUDE.md as a real limitation: the server's public
+IP is currently hardcoded in roughly 8 different places across the codebase
+(default MLflow tracking URI, frontend API client, docker-compose
+overlays, etc.), so if the EC2 instance were ever replaced, all of them
+would need updating together.
+
+
+================================================================================
+PART 12 — TESTING STRATEGY
+================================================================================
+
+File locations: tests/unit/*, tests/integration/*, tests/conftest.py
+
+12.1 Philosophy: fully synthetic, no external dependencies
+------------------------------------------------
+The entire test suite runs WITHOUT downloading the real (huge, licensed)
+ISIC dataset and WITHOUT a real trained model. `tests/conftest.py` defines
+"fixtures" (reusable, small, fake test data — a handful of tiny randomly-
+generated images and a synthetic CSV of fake patient rows) that stand in for
+the real thing. This makes the test suite fast, free, and runnable by
+anyone (including CI, which has no access to Kaggle credentials or GPU
+hardware) — while still exercising the REAL code paths (data loading,
+transforms, model forward pass, API request handling) end to end.
+
+12.2 Unit tests (tests/unit/)
+------------------------------------------------
+Each targets one specific module in isolation:
+  - test_patient_leakage.py — re-verifies, independently of prepare_data.py
+    itself, that no synthetic patient ever ends up split across train/val/
+    test — the automated guardrail against the exact leakage bug described
+    in Part 6.1 ever silently reappearing
+  - test_dataset.py, test_datamodule.py, test_transforms.py — verify the
+    data-loading pipeline produces correctly-shaped tensors, that
+    augmentations run without error, that the weighted sampler behaves
+    sensibly
+  - test_metadata.py — verifies the age/sex/site encoding logic (Part 6.4)
+    produces the expected numeric outputs, including the "unknown" sentinel
+    cases
+  - test_model.py — verifies the model's forward pass runs and produces
+    correctly-shaped output for both branches and the fused head
+  - test_metrics.py — verifies the clinical metric computations (Part 5.4/
+    7.4) are numerically correct against known small examples
+  - test_model_uri.py — verifies the MLflow model-resolution logic (Part
+    9.2) picks the right run under various mocked scenarios
+  - test_ood.py — verifies the OOD detector (Part 8.2) fits and scores
+    correctly on synthetic embeddings
+
+12.3 Integration tests (tests/integration/)
+------------------------------------------------
+  - test_api.py — spins up the actual FastAPI app and exercises its
+    endpoints via HTTP-like test requests, but "patches" (replaces, via
+    Python's mocking tools) `cancer_detection.serving.api.predictor` with a
+    fake, so the test verifies real request/response handling, validation,
+    and error paths WITHOUT needing a real multi-hundred-MB model loaded
+  - test_training_smoke.py — runs a genuinely tiny, real end-to-end training
+    loop (matching what `training=fast_dev` does — Part 7.6) on the
+    synthetic fixture data, confirming the ENTIRE training pipeline (data
+    loading → model → loss → optimizer → logging) actually works together,
+    not just each piece individually
+
+12.4 configs/training/fast_dev.yaml — the human-facing smoke test
+------------------------------------------------
+Separately from the automated test suite, `python scripts/train.py
+training=fast_dev` is a manually-runnable, ~60-second CPU-only smoke test
+against 2 real batches — meant as the very first thing to run after making
+ANY change to training code, to catch obvious breakage (crashes, shape
+mismatches) in under a minute, before committing to a slow, expensive full
+GPU training run. The README/CLAUDE.md explicitly recommend running this
+FIRST.
+
+
+================================================================================
+PART 13 — CODE QUALITY TOOLING
+================================================================================
+
+- ruff: an extremely fast Python linter+formatter (written in Rust),
+  configured (pyproject.toml) to check for a specific curated set of rule
+  categories (pyflakes-style bug detection, import sorting, naming
+  conventions, pyupgrade modernization suggestions), with a 100-character
+  line length and a couple of specific exceptions turned off.
+- mypy: Python static type checker, configured fairly strictly
+  (`disallow_untyped_defs = true` — every function must have type
+  annotations), though currently non-blocking in CI while the codebase
+  builds up full type coverage.
+- pytest + pytest-cov: the test runner and coverage-measurement tool.
+- The project uses modern Python type-hint syntax throughout (`from
+  __future__ import annotations`, `str | None` instead of the older
+  `Optional[str]`), targeting Python 3.11+.
+
+
+================================================================================
+PART 14 — KEY DESIGN DECISIONS, SUMMARIZED (great interview talking points)
+================================================================================
+
+1. Patient-grouped, not image-level, data splitting — prevents the model
+   from "cheating" by recognizing patients rather than lesions; caught and
+   fixed a real leakage bug that had inflated a prior reported AUROC.
+
+2. Deploy the BEST checkpoint, not whatever's left in memory after training
+   — PyTorch Lightning leaves the final (often overfit) epoch's weights
+   loaded; the training script explicitly reloads and re-evaluates the
+   best-scoring checkpoint before shipping it.
+
+3. Geometric parity between training and serving — validation/serving image
+   preprocessing intentionally avoids simple image resizing because it would
+   distort aspect ratio differently than the training augmentation does,
+   which would otherwise silently create a train/serve mismatch.
+
+4. Deterministic Test-Time Augmentation — worked around an
+   albumentations library quirk (a "deterministic" transform that
+   secretly wasn't) to guarantee the exact same uploaded image always
+   produces the exact same prediction, a basic trust requirement for a
+   medical tool.
+
+5. Threshold calibration matched to the real serving pipeline — the
+   decision threshold is fit using the SAME 8-pass TTA averaging the live
+   API uses, not a faster approximation, so the number used to draw the
+   "malignant vs. benign" line in production is the one that was actually
+   validated.
+
+6. Layered class-imbalance handling — oversampling (WeightedRandomSampler)
+   + a loss function designed for imbalance (Focal Loss) + threshold
+   calibration for a clinical sensitivity target + a metric (pAUC) that
+   specifically rewards being accurate in the high-sensitivity region — four
+   independent, complementary techniques rather than relying on just one.
+
+7. Explicit self-auditing for shortcut-learning and bias — diagnose.py
+   actively tests whether the model might be exploiting an
+   image-processing artifact rather than the actual lesion, and
+   evaluate.py explicitly reports an observed age-related sensitivity gap
+   rather than hiding it behind a single pooled accuracy number.
+
+8. Graceful degradation everywhere — the API starts and responds to health
+   checks immediately even while the (slow-to-load) model is still loading
+   in the background; OOD detection and threshold calibration all have
+   sane, clearly-logged fallbacks rather than hard-crashing if an artifact
+   is missing.
+
+9. Config-driven, not hardcoded, experimentation — Hydra configs let any
+   hyperparameter or backbone architecture be swapped via a one-line CLI
+   override, and every run's exact resolved configuration is logged to
+   MLflow for full reproducibility.
+
+10. Honest, held-out evaluation with uncertainty quantification — bootstrap
+    confidence intervals and calibration error (ECE) are reported alongside
+    every metric, not just single point estimates, and the exact same
+    numbers computed for internal evaluation are what the public website
+    displays — there is no separate, prettier set of "marketing" numbers.
+
+
+================================================================================
+PART 15 — GLOSSARY (quick reference)
+================================================================================
+
+AUROC — Area Under the ROC Curve; a 0.5-to-1.0 score measuring how well a
+  model ranks positive examples above negative ones, independent of any
+  specific decision threshold.
+Backbone — the main feature-extracting part of a CNN (here, EfficientNet-B4)
+  before any task-specific final layers are attached.
+Backpropagation — the algorithm neural networks use to compute how to adjust
+  their internal numbers to reduce prediction error, based on calculus
+  (gradients).
+Batch — a small group of training examples processed together in one step
+  (here, e.g., 16 images at a time), rather than one at a time (too slow)
+  or the whole dataset at once (too much memory).
+Checkpoint — a saved snapshot of a model's internal numbers at some point
+  during training, so training can be resumed or a specific point can be
+  evaluated/deployed later.
+Class imbalance — when one category (here, "malignant") is much rarer in
+  the data than another ("benign").
+Docker container/image — a portable, self-contained package bundling code
+  and all its dependencies so it runs identically anywhere.
+Epoch — one full pass through the entire training dataset.
+Feature vector / embedding — a list of numbers a neural network produces
+  internally that numerically summarizes/represents an input (here, an
+  image).
+Focal Loss — a loss function variant that down-weights "easy" examples to
+  focus training on harder ones; useful for imbalanced datasets.
+Fusion (multimodal fusion) — combining information from two or more
+  different types of input (here, image + patient metadata) into one joint
+  decision.
+GradCAM/HiResCAM — techniques for visualizing which part of an input image
+  most influenced a CNN's prediction.
+Hydra — a Python configuration-management library used here to organize
+  hyperparameters into composable YAML files.
+Learning rate — how large a step the optimizer takes when adjusting the
+  model's numbers each training step; too high = unstable, too low = slow.
+Logit — a model's raw, un-normalized output number before it's converted
+  into a 0-1 probability via a sigmoid function.
+Mahalanobis distance — a statistical "distance from normal" measure that
+  accounts for the actual spread/shape of a reference dataset, not just raw
+  Euclidean distance.
+MLflow — an experiment-tracking and model-registry tool used to log,
+  compare, and version machine-learning training runs and their resulting
+  models.
+Multimodal — using more than one type/source of input data together (here,
+  images + tabular metadata).
+Overfitting — when a model learns to fit its specific training data (even
+  its noise/quirks) too closely, hurting its ability to generalize to new,
+  unseen data.
+PCA (Principal Component Analysis) — a technique for reducing the number of
+  numbers used to represent data, while preserving as much of its
+  meaningful variation as possible.
+pAUC — partial AUC; AUROC measured only over a restricted, clinically
+  relevant range of the ROC curve.
+Sensitivity (a.k.a. recall) — of all the truly malignant cases, what
+  fraction did the model correctly flag? (Missing this = a false negative,
+  the worst outcome for a screening tool.)
+Specificity — of all the truly benign cases, what fraction did the model
+  correctly clear? (Missing this = a false positive, an unnecessary scare/
+  referral.)
+PPV (Positive Predictive Value / precision) — of everything the model
+  flagged as malignant, what fraction actually was?
+NPV (Negative Predictive Value) — of everything the model cleared as
+  benign, what fraction actually was?
+Sigmoid — a mathematical function that squashes any real number into the
+  range (0, 1), used to turn a raw logit into a probability.
+Threshold (decision threshold) — the probability cutoff above which a
+  prediction is called "malignant."
+Transfer learning — reusing a model already trained on a large, general
+  dataset (here, ImageNet) as the starting point for a new, more specific
+  task, rather than training entirely from scratch.
+TTA (Test-Time Augmentation) — running multiple, slightly-varied versions of
+  the same input through a model and averaging the results for a more
+  stable, robust final prediction.
+
+
+================================================================================
+PART 16 — HOW TO RUN THIS PROJECT YOURSELF (quick reference)
+================================================================================
+
+    pip install -e ".[dev]"                       # install everything
+
+    # One-time data setup (after downloading ISIC 2020 from Kaggle manually
+    # into data/raw/):
+    python scripts/prepare_data.py                # build patient-safe splits
+    python scripts/resize_images.py --size 448     # build the fast image cache
+
+    # Sanity-check training works at all (run this FIRST, always):
+    python scripts/train.py training=fast_dev      # ~60s, CPU, 2 batches
+
+    # Real training (needs a GPU realistically):
+    python scripts/train.py
+
+    # Evaluate the best trained model honestly on held-out test data:
+    python scripts/evaluate.py
+
+    # Run the web API locally:
+    uvicorn cancer_detection.serving.api:app --reload
+
+    # Run the website locally:
+    cd frontend && npm install && npm run dev       # http://localhost:3000
+
+    # Run everything together via Docker:
+    docker compose --project-directory . -f docker/docker-compose.yml up --build
+
+    # Run the automated test suite:
+    pytest tests/unit -v
+    pytest tests/integration -v
+
+================================================================================
+END OF SUMMARY
+================================================================================

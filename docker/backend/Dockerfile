@@ -1,6 +1,6 @@
 # FastAPI inference service (CPU PyTorch).
 # Build from repo root:
-#   docker compose build api
+#   docker compose build backend
 FROM python:3.11-slim-bookworm
 
 WORKDIR /app
@@ -32,15 +32,13 @@ RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir --force-reinstall torch torchvision \
         --index-url https://download.pytorch.org/whl/cpu
 
-COPY docker/api/entrypoint.sh /entrypoint.sh
+COPY docker/backend/entrypoint.sh /entrypoint.sh
 RUN sed -i 's/\r$//' /entrypoint.sh \
     && chmod +x /entrypoint.sh \
-    && mkdir -p /app/serving_model /app/artifacts
+    && mkdir -p /app/artifacts
 
-# Optional baked model / threshold — place files before build:
-#   mlflow artifacts download -u runs:/<run_id>/model -d serving_model
-#   copy artifacts/threshold.json into artifacts/
-COPY serving_model/ /app/serving_model/
+# threshold.json is committed so it ships with the image; the model itself
+# is always resolved from MLflow at startup (see serving/model_uri.py).
 COPY artifacts/ /app/artifacts/
 
 EXPOSE 8000

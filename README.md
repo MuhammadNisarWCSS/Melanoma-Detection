@@ -316,7 +316,7 @@ AWS EC2 / ECR / S3, and GitHub Actions for both quality gates and deployment. Qu
 | Config | Hydra 1.3 + OmegaConf |
 | Tracking | MLflow ≥2.14 (tracking, registry, artifacts) |
 | Explainability | pytorch-grad-cam (HiResCAM) |
-| API | FastAPI ≥0.111, Pydantic v2, Uvicorn, python-multipart |
+| Backend | FastAPI ≥0.111, Pydantic v2, Uvicorn, python-multipart |
 | Frontend | React 18.3, Vite 5, TypeScript 5.4, Tailwind 3.4, framer-motion, lucide-react |
 | Proxy | nginx (SPA + `/api`, `/mlflow` reverse proxy) |
 | Containers | Docker, Docker Compose overlays (local / ECR / EC2 / seed / host-data) |
@@ -453,7 +453,7 @@ model required. `tests/integration/test_api.py` patches the predictor.
 docker compose --project-directory . -f docker/docker-compose.yml up --build
 ```
 
-Three containers — website on `:3000`, API on `:8000`, MLflow on `:5000` — with nginx proxying
+Three containers — website on `:3000`, backend on `:8000`, MLflow on `:5000` — with nginx proxying
 `/api` and `/mlflow` so the browser only needs one port. Overlays layer environment-specific changes
 on the same base file:
 
@@ -474,10 +474,10 @@ flowchart LR
     end
     subgraph AWS["AWS"]
         S3[(S3 — MLflow seed)]
-        ECR[(ECR — mlflow / api / frontend)]
+        ECR[(ECR — mlflow / backend / frontend)]
         subgraph EC2["EC2 instance"]
             FE[nginx frontend :3000]
-            API[FastAPI :8000]
+            BACKEND[FastAPI :8000]
             ML[MLflow :5000]
             Vol[(volume mlflow-data)]
         end
@@ -490,8 +490,8 @@ flowchart LR
     Train -->|metrics + model artifacts| ML
     S3 -.->|one-time seed| Vol
     Vol --> ML
-    ML --> API
-    API --> FE
+    ML --> BACKEND
+    BACKEND --> FE
     ML --> FE
     CD -->|push images| ECR
     ECR -->|pull + compose up| EC2
@@ -504,7 +504,7 @@ to serving rather than to training.
 
 - **EC2** runs the whole stack on one instance. Security group must allow inbound TCP **3000**,
   **5000** and **8000** (5000 is required for laptop training to reach MLflow).
-- **ECR** holds three private images (`mlflow`, `api`, `frontend`), each tagged with the git SHA and
+- **ECR** holds three private images (`mlflow`, `backend`, `frontend`), each tagged with the git SHA and
   `latest`, scan-on-push enabled. EC2 pulls rather than builds — deploys are immutable and
   repeatable, not `git pull` on a server.
 - **S3** carries a one-time migration of local MLflow history:
@@ -517,12 +517,12 @@ The frontend image is built with `VITE_API_URL=/api` and `VITE_MLFLOW_URL=/mlflo
 hits a single origin; local `npm run dev` instead points at the EC2 MLflow URL directly.
 
 After a better training run the dashboard metrics update immediately, but predictions use the model
-loaded at API startup — restart it to promote the new best-AUROC model:
+loaded at backend startup — restart it to promote the new best-AUROC model:
 
 ```bash
 ssh <user>@18.219.3.159 'cd ~/cancer-detection && docker compose --project-directory . \
   -f docker/docker-compose.yml -f docker/docker-compose.ecr.yml \
-  -f docker/docker-compose.ec2.yml restart api'
+  -f docker/docker-compose.ec2.yml restart backend'
 ```
 
 > **No Elastic IP.** The public IP `18.219.3.159` is duplicated in
@@ -537,7 +537,7 @@ ssh <user>@18.219.3.159 'cd ~/cancer-detection && docker compose --project-direc
 (training smoke + FastAPI `TestClient`) → Codecov upload.
 
 **CD** (`.github/workflows/deploy.yml`, on `main` when `docker/`, `frontend/`, `src/`,
-`pyproject.toml`, `artifacts/` or `serving_model/` change, or via `workflow_dispatch`):
+`pyproject.toml` or `artifacts/` change, or via `workflow_dispatch`):
 
 ```mermaid
 flowchart TD
@@ -601,7 +601,7 @@ CancerDetection/
 │   ├── unit/                       # transforms, metadata, metrics, OOD, patient-leakage regression
 │   └── integration/                # training smoke test + FastAPI TestClient flows
 ├── frontend/                       # React + Vite + Tailwind dashboard (+ Dockerfile, nginx.conf)
-├── docker/                         # api/ + mlflow/ images, compose base + 4 overlays
+├── docker/                         # backend/ + mlflow/ images, compose base + 4 overlays
 ├── artifacts/                      # threshold.json, test_metrics.json, diagnostics_*.json
 └── .github/workflows/              # ci.yml, deploy.yml
 ```

@@ -6,15 +6,13 @@ without waiting for a full retrain.
 
 Example:
     python scripts/republish_checkpoint.py \\
-        --ckpt "1/5c1b857d8b924b10a83cfcf53121d64c/checkpoints/epoch=2-auroc=0.9220.ckpt" \\
-        --download-to serving_model
+        --ckpt "1/5c1b857d8b924b10a83cfcf53121d64c/checkpoints/epoch=2-auroc=0.9220.ckpt"
 """
 
 from __future__ import annotations
 
 import argparse
 import os
-import shutil
 import sys
 from pathlib import Path
 
@@ -53,12 +51,6 @@ def main() -> None:
         "--threshold-out",
         type=Path,
         default=PROJECT_ROOT / "artifacts" / "threshold.json",
-    )
-    parser.add_argument(
-        "--download-to",
-        type=Path,
-        default=None,
-        help="If set, download the logged model here (e.g. serving_model/) for Docker bake-in",
     )
     parser.add_argument(
         "--target-sensitivity",
@@ -123,39 +115,8 @@ def main() -> None:
             val_auroc=payload["val_auroc"],
         )
 
-        if args.download_to is not None:
-            dest = args.download_to
-            if dest.exists():
-                for child in dest.iterdir():
-                    if child.name == ".gitkeep":
-                        continue
-                    if child.is_dir():
-                        shutil.rmtree(child)
-                    else:
-                        child.unlink()
-            dest.mkdir(parents=True, exist_ok=True)
-            local = mlflow.artifacts.download_artifacts(
-                artifact_uri=f"runs:/{run_id}/model",
-                dst_path=str(dest),
-            )
-            # download_artifacts may nest under dest/model — flatten if needed
-            nested = Path(local)
-            if nested.name == "model" and nested.parent == dest:
-                for item in nested.iterdir():
-                    target = dest / item.name
-                    if target.exists():
-                        if target.is_dir():
-                            shutil.rmtree(target)
-                        else:
-                            target.unlink()
-                    shutil.move(str(item), str(target))
-                nested.rmdir()
-            logger.info("Model downloaded for Docker bake-in", path=str(dest))
-
     print(f"\nDone. MODEL_URI=runs:/{run_id}/model")
     print(f"Threshold written to {args.threshold_out}")
-    if args.download_to:
-        print(f"Baked copy at {args.download_to} — rebuild the API image to ship it.")
 
 
 if __name__ == "__main__":

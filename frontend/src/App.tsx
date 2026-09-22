@@ -1,19 +1,17 @@
 import Navbar from './components/Navbar'
-import Hero from './components/Hero'
 import AnalysisTool from './components/AnalysisTool'
-import TestMetricsSection from './components/TestMetrics'
-import ModelStats from './components/ModelStats'
+import HowItWorks from './components/HowItWorks'
+import TechnicalDetails from './components/TechnicalDetails'
 import Footer from './components/Footer'
 
 export default function App() {
   return (
-    <div className="min-h-screen bg-[#070b14] text-slate-100 selection:bg-teal-400/20 selection:text-teal-300">
+    <div className="min-h-screen bg-[#fbf6f2] text-slate-100 selection:bg-teal-400/20 selection:text-teal-300">
       <Navbar />
       <main>
-        <Hero />
         <AnalysisTool />
-        <TestMetricsSection />
-        <ModelStats />
+        <HowItWorks />
+        <TechnicalDetails />
       </main>
       <Footer />
     </div>

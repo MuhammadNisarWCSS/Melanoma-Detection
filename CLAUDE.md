@@ -27,7 +27,7 @@ python scripts/republish_checkpoint.py --ckpt <ckpt>  # re-log a best checkpoint
 # Serve
 uvicorn cancer_detection.serving.api:app --host 0.0.0.0 --port 8000 --reload
 cd frontend && npm install && npm run dev     # :3000; npm run build = tsc && vite build
-docker compose --project-directory . -f docker/docker-compose.yml up --build   # frontend+api+mlflow
+docker compose --project-directory . -f docker/docker-compose.yml up --build   # frontend+backend+mlflow
 
 # Quality gates (mirror .github/workflows/ci.yml)
 ruff check src/cancer_detection tests scripts

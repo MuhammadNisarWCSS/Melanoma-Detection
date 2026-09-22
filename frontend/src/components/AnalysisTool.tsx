@@ -19,13 +19,25 @@ import { predict, type PredictResponse } from '../api/client'
 import ResultCard from './ResultCard'
 
 const SITES = [
-  { value: 'torso', label: 'Torso' },
-  { value: 'lower extremity', label: 'Lower Extremity' },
-  { value: 'upper extremity', label: 'Upper Extremity' },
-  { value: 'head/neck', label: 'Head / Neck' },
-  { value: 'palms/soles', label: 'Palms / Soles' },
-  { value: 'oral/genital', label: 'Oral / Genital' },
-  { value: 'unknown', label: 'Unknown / Not Specified' },
+  { value: 'torso', label: 'Chest, back, or torso' },
+  { value: 'lower extremity', label: 'Leg or foot' },
+  { value: 'upper extremity', label: 'Arm or hand' },
+  { value: 'head/neck', label: 'Head or neck' },
+  { value: 'palms/soles', label: 'Palm or sole' },
+  { value: 'oral/genital', label: 'Mouth or genital area' },
+  { value: 'unknown', label: "Not sure" },
+]
+
+const SEX_LABELS: Record<'male' | 'female' | 'unknown', string> = {
+  male: 'Male',
+  female: 'Female',
+  unknown: 'Prefer not to say',
+}
+
+const TRUST_POINTS = [
+  { title: 'Free to use', detail: 'No account, no cost' },
+  { title: 'Nothing is stored', detail: 'Your photo stays on this session' },
+  { title: 'A second opinion', detail: 'Not a diagnosis on its own' },
 ]
 
 function EmptyPanel() {
@@ -37,12 +49,12 @@ function EmptyPanel() {
         <div className="absolute inset-[34px] rounded-full border border-teal-400/20" />
         <div
           className="absolute inset-[38px] rounded-full bg-teal-400/10"
-          style={{ boxShadow: '0 0 20px rgba(0,212,170,0.08)' }}
+          style={{ boxShadow: '0 0 20px rgba(193,104,63,0.12)' }}
         />
       </div>
-      <p className="text-[14px] text-slate-400">Analysis results will appear here</p>
+      <p className="text-[14px] text-slate-400">Your result will show up here</p>
       <p className="mt-1 text-[12px] text-slate-600">
-        Upload an image and fill in patient details, then click Run Analysis
+        Add a photo and a few details, then check my skin
       </p>
     </div>
   )
@@ -58,8 +70,8 @@ function LoadingPanel() {
         <div className="absolute inset-3 rounded-full border border-teal-400/15 animate-spin-slow" style={{ animationDirection: 'reverse' }} />
         <div className="absolute inset-[38px] rounded-full bg-teal-400/10 animate-pulse-teal" />
       </div>
-      <p className="text-[15px] font-medium text-slate-200">Analyzing image…</p>
-      <p className="mt-1.5 text-[13px] text-slate-500">Running 8-pass TTA inference</p>
+      <p className="text-[15px] font-medium text-slate-200">Taking a close look…</p>
+      <p className="mt-1.5 text-[13px] text-slate-500">Checking the image from a few angles for a steadier read</p>
       <div className="mt-6 flex gap-1.5">
         {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
           <motion.div
@@ -70,9 +82,6 @@ function LoadingPanel() {
           />
         ))}
       </div>
-      <p className="mt-3 text-[11px] font-mono text-slate-600">
-        pass <motion.span animate={{ opacity: [0, 1] }} transition={{ duration: 0.4, repeat: Infinity }}>_</motion.span>
-      </p>
     </div>
   )
 }
@@ -147,26 +156,33 @@ export default function AnalysisTool() {
   }
 
   return (
-    <section id="analyze" className="relative py-24 px-5 sm:px-8">
-      {/* Section separator line */}
-      <div className="mx-auto max-w-7xl">
-        {/* Section header */}
+    <section id="analyze" className="relative pt-28 pb-20 px-5 sm:px-8 lg:pt-32">
+      <div className="mx-auto max-w-6xl">
+        {/* Intro — the tool is the hero, not a marketing banner above it */}
         <motion.div
-          className="mb-12"
+          className="mb-10 max-w-2xl"
           initial={{ opacity: 0, y: 12 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.45 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
         >
-          <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.2em] text-teal-400">
-            Analysis Tool
+          <p className="mb-3 text-[13px] font-medium text-teal-400">
+            A free second opinion on a spot you're unsure about
           </p>
-          <h2 className="text-[32px] font-bold tracking-tight text-slate-100">
-            Dermoscopy Analysis
-          </h2>
-          <p className="mt-2 text-[15px] text-slate-400">
-            Upload a dermoscopy image and provide patient metadata for classification.
+          <h1 className="font-display text-[36px] font-semibold leading-[1.15] tracking-tight text-slate-100 sm:text-[44px]">
+            Not sure if that mole is worth worrying about?
+          </h1>
+          <p className="mt-4 text-[16px] leading-relaxed text-slate-400">
+            Upload a clear photo and a couple of details. In seconds you'll see whether it looks
+            benign or worth showing a dermatologist — and what stood out to get that read.
           </p>
+          <div className="mt-6 flex flex-wrap gap-x-6 gap-y-2">
+            {TRUST_POINTS.map((t) => (
+              <div key={t.title} className="flex items-baseline gap-1.5 text-[13px]">
+                <span className="font-medium text-slate-200">{t.title}</span>
+                <span className="text-slate-500">— {t.detail}</span>
+              </div>
+            ))}
+          </div>
         </motion.div>
 
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
@@ -203,7 +219,7 @@ export default function AnalysisTool() {
                     className="w-full object-cover"
                     style={{ minHeight: 260, maxHeight: 380 }}
                   />
-                  <div className="absolute inset-0 bg-gradient-to-t from-[#070b14]/70 via-transparent to-transparent" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/45 via-transparent to-transparent" />
                   <div className="absolute bottom-3 left-4 flex items-center gap-2">
                     <ImageIcon className="h-3.5 w-3.5 text-slate-400" />
                     <span className="text-[12px] font-medium text-slate-300 truncate max-w-[200px]">
@@ -229,7 +245,7 @@ export default function AnalysisTool() {
                     />
                   </div>
                   <p className="mb-1 text-[15px] font-medium text-slate-300">
-                    {dragging ? 'Release to upload' : 'Drop dermoscopy image here'}
+                    {dragging ? 'Release to upload' : 'Drop a photo of the spot here'}
                   </p>
                   <p className="text-[13px] text-slate-500">or click to browse · JPEG, PNG, BMP, TIFF</p>
                 </div>
@@ -240,14 +256,17 @@ export default function AnalysisTool() {
             <div className="rounded-2xl border border-ink-600/70 bg-ink-800/50 p-5 space-y-5">
               <div className="flex items-center gap-2 text-[13px] font-semibold text-slate-300">
                 <User className="h-4 w-4 text-teal-400" strokeWidth={2} />
-                Patient Metadata
+                A few quick details
               </div>
+              <p className="-mt-3 text-[12px] text-slate-500">
+                Age, sex, and location on the body sharpen the read — skip any you'd rather not share.
+              </p>
 
               {/* Age */}
               <div>
                 <div className="mb-2 flex items-center justify-between">
                   <label className="font-mono text-[10px] uppercase tracking-widest text-slate-500">
-                    Patient Age
+                    Your age
                   </label>
                   <span className="font-mono text-[13px] font-semibold text-teal-400">{age} yrs</span>
                 </div>
@@ -270,7 +289,7 @@ export default function AnalysisTool() {
               {/* Sex */}
               <div>
                 <label className="mb-2 block font-mono text-[10px] uppercase tracking-widest text-slate-500">
-                  Biological Sex
+                  Sex
                 </label>
                 <div className="flex gap-2">
                   {(['male', 'female', 'unknown'] as const).map((s) => (
@@ -278,13 +297,13 @@ export default function AnalysisTool() {
                       key={s}
                       type="button"
                       onClick={() => setSex(s)}
-                      className={`flex-1 rounded-lg border py-2 text-[13px] font-medium capitalize transition-all duration-150 ${
+                      className={`flex-1 rounded-lg border py-2 text-[13px] font-medium transition-all duration-150 ${
                         sex === s
                           ? 'border-teal-400/40 bg-teal-400/10 text-teal-400'
                           : 'border-ink-600/70 bg-ink-700/40 text-slate-500 hover:border-ink-500 hover:text-slate-400'
                       }`}
                     >
-                      {s}
+                      {SEX_LABELS[s]}
                     </button>
                   ))}
                 </div>
@@ -294,7 +313,7 @@ export default function AnalysisTool() {
               <div>
                 <label className="mb-2 flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-widest text-slate-500">
                   <MapPin className="h-3 w-3" />
-                  Anatomical Site
+                  Where on your body is it?
                 </label>
                 <select
                   value={site}
@@ -339,22 +358,19 @@ export default function AnalysisTool() {
                 type="button"
                 onClick={handleSubmit}
                 disabled={!image || loading}
-                className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-3.5 text-[14px] font-semibold transition-all duration-200 ${
+                className={`flex flex-1 items-center justify-center gap-2 rounded-full py-3.5 text-[14px] font-semibold transition-all duration-200 ${
                   !image || loading
                     ? 'cursor-not-allowed border border-ink-600/50 bg-ink-800/40 text-slate-700'
-                    : 'bg-teal-400 text-[#070b14] hover:bg-teal-300 shadow-teal hover:shadow-teal'
+                    : 'bg-teal-400 text-white hover:bg-teal-500 shadow-teal hover:shadow-teal'
                 }`}
               >
                 {loading ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    Analyzing…
+                    Checking…
                   </>
                 ) : (
-                  <>
-                    Run Analysis
-                    <span className="ml-0.5 font-mono text-[11px] opacity-60">8× TTA</span>
-                  </>
+                  'Check my skin'
                 )}
               </button>
 
@@ -363,7 +379,7 @@ export default function AnalysisTool() {
                   type="button"
                   onClick={handleReset}
                   title="Reset"
-                  className="flex h-[50px] w-[50px] items-center justify-center rounded-xl border border-ink-600/70 bg-ink-800/50 text-slate-500 transition-colors hover:border-ink-500 hover:text-slate-300"
+                  className="flex h-[50px] w-[50px] items-center justify-center rounded-full border border-ink-600/70 bg-ink-800/50 text-slate-500 transition-colors hover:border-ink-500 hover:text-slate-300"
                 >
                   <RefreshCw className="h-4 w-4" />
                 </button>

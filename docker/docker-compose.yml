@@ -19,8 +19,6 @@
 # Browse host files without seeding:
 #   docker compose --project-directory . \
 #     -f docker/docker-compose.yml -f docker/docker-compose.host-data.yml up mlflow
-#
-# Optional: bake a model before building the API image (see README Docker section).
 
 services:
   mlflow:
@@ -35,19 +33,19 @@ services:
       - mlflow-data:/mlflow
     restart: unless-stopped
 
-  api:
+  backend:
     build:
       context: .
-      dockerfile: docker/api/Dockerfile
-    container_name: melanoma-api
+      dockerfile: docker/backend/Dockerfile
+    container_name: melanoma-backend
     ports:
       - "8000:8000"
     environment:
       MLFLOW_TRACKING_URI: http://mlflow:5000
       THRESHOLD_PATH: /app/artifacts/threshold.json
       DEVICE: cpu
-      # Leave unset to auto-pick the best val/auroc run from MLflow, or the
-      # baked /app/serving_model if present. Pin with e.g.:
+      # Leave unset to auto-pick the best val/auroc run from MLflow.
+      # Pin with e.g.:
       # MODEL_URI: runs:/YOUR_RUN_ID/model
     volumes:
       # Live-update threshold without rebuilding (optional)
@@ -68,7 +66,7 @@ services:
     ports:
       - "3000:80"
     depends_on:
-      api:
+      backend:
         condition: service_started
       mlflow:
         condition: service_healthy

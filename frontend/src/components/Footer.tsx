@@ -6,26 +6,38 @@ export default function Footer() {
       <div className="max-w-7xl mx-auto flex flex-col items-center gap-4 sm:flex-row sm:justify-between">
         <div className="flex items-center gap-2.5 text-slate-500">
           <Activity className="h-4 w-4 text-teal-400/60" strokeWidth={2} />
-          <span className="text-[13px]">
+          <span className="font-display text-[13px]">
             Derm<span className="text-teal-400/70">AI</span>
           </span>
         </div>
 
         <div className="flex flex-col items-center gap-1 text-center sm:items-end">
-          <p className="text-[12px] text-slate-600">
-            EfficientNet-B4 · PyTorch Lightning · MLflow · FastAPI
-          </p>
           <p className="text-[11px] text-slate-700">
-            For research use only — not intended for clinical diagnosis
+            Not a diagnosis — always follow up with a dermatologist about anything that concerns you
           </p>
-          <a
-            href="https://github.com/MuhammadNisarWCSS/Melanoma-Detection"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-[11px] text-slate-700 hover:text-teal-400 transition-colors"
-          >
-            View on GitHub
-          </a>
+          <div className="mt-1 flex items-center gap-3 text-[11px] text-slate-700">
+            <a
+              href="https://github.com/MuhammadNisarWCSS/Melanoma-Detection"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-teal-400 transition-colors"
+            >
+              View on GitHub
+            </a>
+            <span className="text-ink-500">·</span>
+            <a
+              href={
+                import.meta.env.VITE_MLFLOW_URL
+                  ? `${String(import.meta.env.VITE_MLFLOW_URL).replace(/\/$/, '')}/`
+                  : 'http://18.219.3.159:5000'
+              }
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-teal-400 transition-colors"
+            >
+              MLflow tracking
+            </a>
+          </div>
         </div>
       </div>
     </footer>

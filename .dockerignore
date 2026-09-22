@@ -21,9 +21,10 @@ outputs
 multirun
 .hydra
 
-# Local tracking / checkpoints (use volume or serving_model instead). Patterns here
-# are root-anchored — "*.ckpt" alone does not match "1/<run>/checkpoints/*.ckpt",
-# so the nested checkpoint tree needs its own entry and a "**/" glob.
+# Local tracking / checkpoints (models are always loaded from MLflow at
+# runtime, never baked into the image). Patterns here are root-anchored —
+# "*.ckpt" alone does not match "1/<run>/checkpoints/*.ckpt", so the nested
+# checkpoint tree needs its own entry and a "**/" glob.
 mlflow.db
 mlartifacts
 mlflow-seed

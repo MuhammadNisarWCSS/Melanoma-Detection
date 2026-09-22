@@ -14,7 +14,7 @@ function ProbabilityGauge({ probability, isMalignant }: { probability: number; i
   const normalizedR = radius - stroke / 2
   const circumference = 2 * Math.PI * normalizedR
   const offset = circumference - probability * circumference
-  const color = isMalignant ? '#ef4444' : '#00d4aa'
+  const color = isMalignant ? '#c0392b' : '#c1683f'
   const pct = Math.round(probability * 100)
 
   return (
@@ -60,7 +60,7 @@ function ProbabilityGauge({ probability, isMalignant }: { probability: number; i
           x={radius + stroke / 2}
           y={radius + stroke / 2 + 13}
           textAnchor="middle"
-          fill="#475569"
+          fill="#9c8a80"
           fontSize="9"
           fontFamily="Inter, sans-serif"
           letterSpacing="1"
@@ -213,13 +213,13 @@ export default function ResultCard({ result, imageSrc }: Props) {
             label="Confidence"
             value={`${Math.round(confidence * 100)}%`}
             fill={confidence}
-            color="#00d4aa"
+            color="#c1683f"
           />
           <MetricBar
             label="TTA Std"
             value={result.tta_std.toFixed(4)}
             fill={Math.min(result.tta_std * 8, 1)}
-            color={isHighUncertainty ? '#f59e0b' : '#00d4aa'}
+            color={isHighUncertainty ? '#b3761c' : '#c1683f'}
             warn={isHighUncertainty}
           />
           <div className="border-t border-ink-600 pt-3">

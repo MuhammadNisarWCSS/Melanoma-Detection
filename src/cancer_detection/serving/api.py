@@ -12,7 +12,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from PIL import Image
@@ -28,39 +28,65 @@ logger = get_logger(__name__)
 
 predictor: Predictor | None = None
 
+# Serializes reloads so two concurrent /reload-model calls can't build two
+# Predictors (each downloading + loading a full torch model) at once.
+_reload_lock = asyncio.Lock()
+
 # In-memory cache for test metrics — populated lazily on first request.
 _test_metrics_cache: dict[str, Any] | None = None
 _LOCAL_TEST_METRICS = Path(os.environ.get("TEST_METRICS_PATH", "artifacts/test_metrics.json"))
+
+
+def _build_predictor(model_uri: str) -> Predictor:
+    threshold_path = os.environ.get("THRESHOLD_PATH", "artifacts/threshold.json")
+    tta_passes = int(os.environ.get("TTA_N_PASSES", "8"))
+    device = os.environ.get("DEVICE", "cpu")
+    return Predictor(
+        model_uri=model_uri,
+        threshold_path=threshold_path,
+        tta_n_passes=tta_passes,
+        device=device,
+    )
 
 
 def _load_predictor() -> None:
     """Resolve and load the model (runs in a worker thread at startup)."""
     global predictor
 
-    threshold_path = os.environ.get("THRESHOLD_PATH", "artifacts/threshold.json")
-    tta_passes = int(os.environ.get("TTA_N_PASSES", "8"))
-    device = os.environ.get("DEVICE", "cpu")
-
     try:
         model_uri = resolve_model_uri()
     except Exception as exc:
-        model_uri = None
         logger.warning("Could not resolve model URI", error=str(exc))
+        return
 
-    logger.info("Starting up", model_uri=model_uri, device=device)
+    logger.info("Starting up", model_uri=model_uri)
     try:
-        if model_uri is None:
-            raise RuntimeError("No model URI available")
-        predictor = Predictor(
-            model_uri=model_uri,
-            threshold_path=threshold_path,
-            tta_n_passes=tta_passes,
-            device=device,
-        )
+        predictor = _build_predictor(model_uri)
         logger.info("API ready")
     except Exception as exc:
         # Graceful degradation: API stays up; predict endpoints return 503.
         logger.warning("Model not loaded — predict endpoints will return 503", error=str(exc))
+
+
+def _reload_predictor_sync() -> str:
+    """Re-resolve the best MLflow model and hot-swap it in if it changed.
+
+    Builds the new Predictor before touching the global, so an in-flight
+    /predict request keeps using the old (still valid) object until the new
+    one is fully loaded — the swap itself is a single atomic assignment.
+    """
+    global predictor
+
+    model_uri = resolve_model_uri()
+    if predictor is not None and predictor.model_uri == model_uri:
+        logger.info("Reload requested — already serving the resolved model", model_uri=model_uri)
+        return model_uri
+
+    logger.info("Reloading model", model_uri=model_uri)
+    new_predictor = _build_predictor(model_uri)
+    predictor = new_predictor
+    logger.info("Model reloaded", model_uri=model_uri)
+    return model_uri
 
 
 @asynccontextmanager
@@ -203,6 +229,32 @@ async def metadata() -> dict:
         "device": str(predictor.device),
         "ood_enabled": predictor.ood_enabled,
     }
+
+
+@app.post("/reload-model", tags=["System"])
+async def reload_model(
+    x_reload_token: str | None = Header(default=None, alias="X-Reload-Token"),
+) -> dict:
+    """Re-resolve the best MLflow model and hot-swap it in, no restart needed.
+
+    Call this after a training run finishes so a new best ``val/auroc`` run
+    takes effect immediately. If unset, the currently-loaded model keeps
+    serving until the container itself restarts. Set ``RELOAD_TOKEN`` in any
+    environment reachable from the internet — this triggers a full model
+    download + load, so it should not be callable by anonymous requests.
+    """
+    expected_token = os.environ.get("RELOAD_TOKEN")
+    if expected_token and x_reload_token != expected_token:
+        raise HTTPException(status_code=403, detail="Invalid or missing reload token")
+
+    async with _reload_lock:
+        try:
+            model_uri = await asyncio.to_thread(_reload_predictor_sync)
+        except Exception as exc:
+            logger.warning("Model reload failed", error=str(exc))
+            raise HTTPException(status_code=503, detail=f"Reload failed: {exc}") from exc
+
+    return {"reloaded": True, "model_uri": model_uri, "model_loaded": predictor is not None}
 
 
 # ---------------------------------------------------------------------------
