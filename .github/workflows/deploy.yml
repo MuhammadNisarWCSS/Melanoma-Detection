@@ -11,7 +11,7 @@
 #   AWS_ACCESS_KEY_ID
 #   AWS_SECRET_ACCESS_KEY
 #   AWS_REGION                 e.g. us-east-2
-#   EC2_HOST                  public IP or DNS (e.g. 18.219.3.159)
+#   EC2_HOST                  public IP or DNS (e.g. 3.18.225.100)
 #   EC2_USER                  e.g. ec2-user or ubuntu
 #   EC2_SSH_KEY               private key PEM contents
 #   MLFLOW_SEED_S3_URI        e.g. s3://my-bucket/mlflow-seed

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import io
 import json
 import os
 import re
@@ -11,7 +13,7 @@ import pandas as pd
 import torch
 
 from cancer_detection.data.metadata import MetadataEncoder
-from cancer_detection.data.transforms import get_tta_transforms, get_val_transforms
+from cancer_detection.data.transforms import _MEAN, _STD, get_tta_transforms, get_val_transforms
 from cancer_detection.explainability.gradcam import GradCAMWrapper
 from cancer_detection.models.classifier import MelanomaClassifier
 from cancer_detection.serving.ood import EmbeddingOODDetector
@@ -20,6 +22,20 @@ from cancer_detection.utils.logger import get_logger
 logger = get_logger(__name__)
 
 _RUN_URI_RE = re.compile(r"^runs:/([^/]+)/")
+
+
+def _thumbnail_b64(tensor: torch.Tensor, size: int = 112) -> str:
+    """Undo normalisation on one TTA view and encode it as a small base64 JPEG."""
+    from PIL import Image
+
+    mean = torch.tensor(_MEAN).view(3, 1, 1)
+    std = torch.tensor(_STD).view(3, 1, 1)
+    pixels = (tensor.detach().cpu() * std + mean).clamp(0, 1)
+    array = (pixels.permute(1, 2, 0).numpy() * 255).astype(np.uint8)
+    img = Image.fromarray(array).resize((size, size), Image.Resampling.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=80)
+    return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
 class Predictor:
@@ -198,12 +214,14 @@ class Predictor:
 
             base_logit = self.model(base_tensor, meta_tensor)
             tta_probs = [torch.sigmoid(base_logit).item()]
+            view_thumbs = [_thumbnail_b64(base_image)]
 
             for transform in self.tta_transforms[1:]:
                 aug_image = transform(image=image_array)["image"]
                 aug_tensor = aug_image.unsqueeze(0).to(self.device)
                 logit = self.model(aug_tensor, meta_tensor)
                 tta_probs.append(torch.sigmoid(logit).item())
+                view_thumbs.append(_thumbnail_b64(aug_image))
 
         mean_prob = float(np.mean(tta_probs))
         std_prob = float(np.std(tta_probs))
@@ -223,6 +241,10 @@ class Predictor:
             "tta_std": round(std_prob, 4),
             "n_views": len(tta_probs),
             "views_flagged": int(sum(p >= self.threshold for p in tta_probs)),
+            "views": [
+                {"probability": round(p, 4), "image_b64": img}
+                for p, img in zip(tta_probs, view_thumbs, strict=True)
+            ],
             "threshold_used": self.threshold,
             "out_of_distribution": out_of_distribution,
             "ood_distance": None if ood_distance is None else round(float(ood_distance), 4),

@@ -49,7 +49,7 @@ function ArchDiagram() {
             <div key={i} className={l.teal ? 'text-teal-500' : ''}>
               {l.text}
             </div>
-          )
+          ),
         )}
       </pre>
     </div>
@@ -76,7 +76,15 @@ function RunTable({ runs }: { runs: MLflowRun[] }) {
       <table className="w-full min-w-[720px] text-[13px]">
         <thead>
           <tr className="border-b border-ink-600/60">
-            {['Run ID', 'Backbone', 'Val AUROC', 'Test AUROC', 'Test Specificity', 'Duration', 'Status'].map((h) => (
+            {[
+              'Run ID',
+              'Backbone',
+              'Val AUROC',
+              'Test AUROC',
+              'Test Specificity',
+              'Duration',
+              'Status',
+            ].map((h) => (
               <th
                 key={h}
                 className="px-4 py-3 text-left font-mono text-[10px] uppercase tracking-wider text-slate-600"
@@ -97,7 +105,9 @@ function RunTable({ runs }: { runs: MLflowRun[] }) {
               </td>
               <td className="px-4 py-3 text-slate-400">{run.backbone}</td>
               <td className="px-4 py-3">
-                <span className={`font-mono ${i === 0 ? 'font-semibold text-teal-400' : 'text-slate-400'}`}>
+                <span
+                  className={`font-mono ${i === 0 ? 'font-semibold text-teal-400' : 'text-slate-400'}`}
+                >
                   {run.val_auroc != null ? run.val_auroc.toFixed(4) : '—'}
                 </span>
               </td>
@@ -163,13 +173,17 @@ function ArchComparison({ runs }: { runs: MLflowRun[] }) {
                   CHAMPION (val)
                 </span>
               )}
-              <span className={`truncate text-[14px] ${isChampion ? 'font-medium text-slate-200' : 'text-slate-500'}`}>
+              <span
+                className={`truncate text-[14px] ${isChampion ? 'font-medium text-slate-200' : 'text-slate-500'}`}
+              >
                 {run.backbone}
               </span>
             </div>
             <div className="flex items-center gap-3 shrink-0">
               <div className="text-right">
-                <div className={`font-mono text-[13px] ${isChampion ? 'font-semibold text-teal-400' : 'text-slate-500'}`}>
+                <div
+                  className={`font-mono text-[13px] ${isChampion ? 'font-semibold text-teal-400' : 'text-slate-500'}`}
+                >
                   {run.test_auroc!.toFixed(4)}
                 </div>
                 <div className="text-[10px] text-slate-700">test AUROC</div>
@@ -219,14 +233,21 @@ export default function ModelStats() {
 
     fetchApiMetadata()
       .then((m) => setTtaPasses(m.tta_passes))
-      .catch(() => { /* keep null — will show fallback */ })
+      .catch(() => {
+        /* keep null — will show fallback */
+      })
 
     fetchMLflowStats()
-      .then((s) => { setStats(s); setLoadState('success') })
+      .then((s) => {
+        setStats(s)
+        setLoadState('success')
+      })
       .catch(() => setLoadState('error'))
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    load()
+  }, [])
 
   const bestTestAuroc = stats?.runs?.[0]?.test_auroc ?? null
   const bestValAuroc = stats?.best_auroc ?? 0
@@ -247,9 +268,14 @@ export default function ModelStats() {
   // highest test AUROC across all runs, since champion selection is by val AUROC.
   const displayAuroc = bestTestAuroc ?? bestValAuroc
   const displayAurocLabel = bestTestAuroc != null ? 'Champion Test AUROC' : 'Best Val AUROC'
-  const displayAurocSub = bestTestAuroc != null
-    ? (loadState === 'success' ? 'Live from MLflow (test)' : 'Held-out test set')
-    : (loadState === 'success' ? 'Live from MLflow (val)' : 'Validated benchmark')
+  const displayAurocSub =
+    bestTestAuroc != null
+      ? loadState === 'success'
+        ? 'Live from MLflow (test)'
+        : 'Held-out test set'
+      : loadState === 'success'
+        ? 'Live from MLflow (val)'
+        : 'Validated benchmark'
 
   const statCards = [
     {
@@ -257,34 +283,39 @@ export default function ModelStats() {
       label: displayAurocLabel,
       value: displayAuroc.toFixed(3),
       sub: displayAurocSub,
+      explain:
+        'How well the model ranks malignant photos above harmless ones, on photos it never trained on. 0.5 is a coin flip and 1.0 is perfect.',
     },
     {
       icon: TrendingUp,
       label: 'Training Runs',
       value: totalRuns != null ? String(totalRuns) : '—',
       sub: 'Tracked experiments',
+      explain:
+        'Each run is one attempt at training the model with different settings. All of them are logged so the best one can be picked fairly.',
     },
     {
       icon: Layers,
       label: 'Architecture',
       value: architectureLabel,
       sub: hasLiveRuns ? 'Best run backbone' : 'No runs yet',
+      explain:
+        'The image network at the core of the model, combined with your age, sex and body site (the "Meta" part) to make one score.',
     },
     {
       icon: Cpu,
       label: 'TTA Passes',
       value: ttaLabel,
       sub: ttaSub,
+      explain:
+        'Test-time augmentation. Each photo is flipped and rotated into this many copies, and their scores are averaged so the result does not depend on orientation.',
     },
   ]
 
   const hasArchComparison = hasLiveRuns && (stats?.runs?.some((r) => r.test_auroc != null) ?? false)
 
   return (
-    <section
-      id="stats"
-      className="relative border-t border-ink-600/50 py-24 px-5 sm:px-8"
-    >
+    <section id="stats" className="relative border-t border-ink-600/50 py-24 px-5 sm:px-8">
       <div className="mx-auto max-w-7xl">
         {/* Header */}
         <motion.div
@@ -308,16 +339,16 @@ export default function ModelStats() {
                     ? `Live MLflow data · ${stats!.runs.length} training runs tracked`
                     : 'MLflow reachable · No runs recorded yet'
                   : loadState === 'error'
-                  ? 'MLflow offline · Showing static data'
-                  : 'Connecting to MLflow tracking server…'}
+                    ? 'MLflow offline · Showing static data'
+                    : 'Connecting to MLflow tracking server…'}
               </p>
               <span
                 className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] ${
                   loadState === 'success'
                     ? 'border-emerald-500/25 bg-emerald-500/8 text-emerald-400'
                     : loadState === 'error'
-                    ? 'border-slate-700 bg-ink-800/60 text-slate-600'
-                    : 'border-amber-400/25 bg-amber-400/8 text-amber-400'
+                      ? 'border-slate-700 bg-ink-800/60 text-slate-600'
+                      : 'border-amber-400/25 bg-amber-400/8 text-amber-400'
                 }`}
               >
                 <span
@@ -325,16 +356,20 @@ export default function ModelStats() {
                     loadState === 'success'
                       ? 'bg-emerald-500 animate-pulse'
                       : loadState === 'error'
-                      ? 'bg-slate-700'
-                      : 'bg-amber-400 animate-pulse'
+                        ? 'bg-slate-700'
+                        : 'bg-amber-400 animate-pulse'
                   }`}
                 />
-                {loadState === 'success' ? 'Live' : loadState === 'error' ? 'Offline' : 'Connecting'}
+                {loadState === 'success'
+                  ? 'Live'
+                  : loadState === 'error'
+                    ? 'Offline'
+                    : 'Connecting'}
               </span>
             </div>
             <p className="mt-2 text-[12px] text-slate-600">
-              Val AUROC drove early stopping, checkpoint selection, and threshold calibration.
-              Final numbers are from the held-out test set above.
+              Val AUROC drove early stopping, checkpoint selection, and threshold calibration. Final
+              numbers are from the held-out test set above.
             </p>
           </div>
 
@@ -354,7 +389,7 @@ export default function ModelStats() {
 
         {/* Stat cards */}
         <div className="mb-12 grid grid-cols-2 gap-4 lg:grid-cols-4">
-          {statCards.map(({ icon: Icon, label, value, sub }, i) => (
+          {statCards.map(({ icon: Icon, label, value, sub, explain }, i) => (
             <motion.div
               key={label}
               className="rounded-2xl border border-ink-600/70 bg-ink-800/60 p-5"
@@ -373,6 +408,9 @@ export default function ModelStats() {
                 {value}
               </div>
               <div className="mt-1.5 text-[11px] text-slate-600">{sub}</div>
+              <p className="mt-3 border-t border-ink-600/40 pt-3 text-[12px] leading-relaxed text-slate-500">
+                {explain}
+              </p>
             </motion.div>
           ))}
         </div>
@@ -391,6 +429,10 @@ export default function ModelStats() {
               <p className="mt-0.5 text-[12px] text-slate-600">
                 Held-out test AUROC &amp; specificity · runs from MLflow experiment
               </p>
+              <p className="mt-2 text-[12px] leading-relaxed text-slate-500">
+                Different model designs, all scored on the same photos they never trained on. Higher
+                AUROC means better ranking, and higher specificity means fewer false alarms.
+              </p>
             </div>
             <ArchComparison runs={stats!.runs} />
           </motion.div>
@@ -406,10 +448,18 @@ export default function ModelStats() {
           >
             <div className="flex items-center justify-between border-b border-ink-600/60 px-6 py-4">
               <div>
-                <h3 className="text-[15px] font-semibold text-slate-200">Model Selection (Validation)</h3>
+                <h3 className="text-[15px] font-semibold text-slate-200">
+                  Model Selection (Validation)
+                </h3>
                 <p className="mt-0.5 text-[12px] text-slate-600">
-                  Runs sorted by val AUROC · used for early stopping &amp; checkpoint selection · final
-                  evaluation on held-out test set
+                  Runs sorted by val AUROC · used for early stopping &amp; checkpoint selection ·
+                  final evaluation on held-out test set
+                </p>
+                <p className="mt-2 text-[12px] leading-relaxed text-slate-500">
+                  Val AUROC is scored on a separate set used to pick the best run, so it is a little
+                  optimistic. Test AUROC and Test Specificity come from photos that were never used
+                  for training or choosing, so trust those more. Status shows whether the run
+                  finished.
                 </p>
               </div>
               <span className="font-mono text-[11px] text-teal-400 border border-teal-400/20 rounded px-2 py-0.5">

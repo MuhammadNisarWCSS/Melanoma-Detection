@@ -18,7 +18,7 @@ logger = get_logger(__name__)
 
 # Hosted tracking server on EC2 (public IP). Override with MLFLOW_TRACKING_URI
 # for a local server or if the instance address changes.
-DEFAULT_TRACKING_URI = "http://18.219.3.159:5000"
+DEFAULT_TRACKING_URI = "http://3.18.225.100:5000"
 VAL_AUROC_METRIC = "val/auroc"
 
 

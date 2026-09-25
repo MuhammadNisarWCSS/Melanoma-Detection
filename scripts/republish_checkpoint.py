@@ -36,7 +36,7 @@ def main() -> None:
     parser.add_argument("--ckpt", type=Path, required=True, help="Lightning .ckpt to publish")
     parser.add_argument(
         "--tracking-uri",
-        default=os.environ.get("MLFLOW_TRACKING_URI", "http://18.219.3.159:5000"),
+        default=os.environ.get("MLFLOW_TRACKING_URI", "http://3.18.225.100:5000"),
     )
     parser.add_argument("--experiment", default="melanoma-detection")
     parser.add_argument(

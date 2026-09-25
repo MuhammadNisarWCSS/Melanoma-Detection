@@ -106,7 +106,6 @@ export default function AnalysisTool() {
   const [sex, setSex] = useState<string>('unknown')
   const [site, setSite] = useState<string>('unknown')
   const [loading, setLoading] = useState(false)
-  const [submitted, setSubmitted] = useState({ age: 50, sex: 'unknown', site: 'unknown' })
   const [result, setResult] = useState<PredictResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -147,7 +146,6 @@ export default function AnalysisTool() {
 
   const runPrediction = async () => {
     if (!image) return
-    setSubmitted({ age, sex, site })
     setLoading(true)
     setError(null)
     setResult(null)
@@ -429,15 +427,7 @@ export default function AnalysisTool() {
           {loading ? (
             <LoadingPanel />
           ) : result ? (
-            <ResultCard
-              result={result}
-              imageSrc={preview}
-              inputs={{
-                age: submitted.age,
-                sex: SEX_LABELS[submitted.sex as keyof typeof SEX_LABELS] ?? submitted.sex,
-                site: SITES.find((s) => s.value === submitted.site)?.label ?? submitted.site,
-              }}
-            />
+            <ResultCard result={result} imageSrc={preview} />
           ) : (
             <EmptyPanel />
           )}

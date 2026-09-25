@@ -1,6 +1,6 @@
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 // Strip trailing slash so `/mlflow/` + `/api/...` does not become `//api`.
-const MLFLOW_BASE = (import.meta.env.VITE_MLFLOW_URL || 'http://18.219.3.159:5000').replace(
+const MLFLOW_BASE = (import.meta.env.VITE_MLFLOW_URL || 'http://3.18.225.100:5000').replace(
   /\/$/,
   '',
 )
@@ -26,6 +26,7 @@ export interface PredictResponse {
   tta_std: number
   n_views?: number | null
   views_flagged?: number | null
+  views?: { probability: number; image_b64: string }[] | null
   threshold_used: number
   out_of_distribution?: boolean | null
   ood_distance?: number | null
@@ -58,6 +59,25 @@ export async function fetchTestMetrics(): Promise<TestMetrics> {
     signal: AbortSignal.timeout(8000),
   })
   if (!res.ok) throw new Error(`test-metrics unavailable (${res.status})`)
+  return res.json()
+}
+
+export interface SubgroupRow {
+  n: number
+  n_malignant: number
+  sensitivity: number | null
+  specificity: number | null
+  auroc: number | null
+}
+
+export type SubgroupMetrics = Record<'overall', SubgroupRow> &
+  Record<'sex' | 'age' | 'site', Record<string, SubgroupRow>>
+
+export async function fetchSubgroupMetrics(): Promise<SubgroupMetrics> {
+  const res = await fetch(`${API_BASE}/subgroup-metrics`, {
+    signal: AbortSignal.timeout(8000),
+  })
+  if (!res.ok) throw new Error(`subgroup-metrics unavailable (${res.status})`)
   return res.json()
 }
 

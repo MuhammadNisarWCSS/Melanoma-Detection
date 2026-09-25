@@ -12,7 +12,7 @@ Usage:
 
 GitHub Actions deploy downloads that S3 prefix onto EC2 the first time the
 volume is empty, so hosted MLflow shows your existing history. Later local
-training defaults to http://18.219.3.159:5000 (or set MLFLOW_TRACKING_URI) so new runs
+training defaults to http://3.18.225.100:5000 (or set MLFLOW_TRACKING_URI) so new runs
 stream into the same volume live.
 """
 
@@ -117,7 +117,7 @@ def main() -> int:
         print("Next:")
         print("  1. GitHub secret MLFLOW_SEED_S3_URI =" + f" {args.s3.rstrip('/')}")
         print("  2. Run Actions → Deploy stack (first deploy imports the seed once)")
-        print("  3. Open http://18.219.3.159:3000 and train from this laptop:")
+        print("  3. Open http://3.18.225.100:3000 and train from this laptop:")
         print("       python scripts/train.py")
         return 0
 
@@ -126,7 +126,7 @@ def main() -> int:
     print("  A) Upload for GitHub->EC2 deploy:")
     print("       python scripts/prepare_mlflow_seed.py --s3 s3://YOUR_BUCKET/mlflow-seed")
     print("  B) Manual copy to EC2:")
-    print("       scp -r mlflow-seed/ ec2-user@18.219.3.159:~/mlflow-seed/")
+    print("       scp -r mlflow-seed/ ec2-user@3.18.225.100:~/mlflow-seed/")
     print("  Then train live against the hosted server:")
     print("       python scripts/train.py")
     return 0

@@ -3,6 +3,13 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 
+class ViewResult(BaseModel):
+    """One test-time-augmentation view of the uploaded image and its score."""
+
+    probability: float = Field(..., ge=0.0, le=1.0)
+    image_b64: str = Field(..., description="Base64 JPEG thumbnail of the view the model saw")
+
+
 class PredictResponse(BaseModel):
     """API response for a single dermoscopy image prediction."""
 
@@ -43,6 +50,9 @@ class PredictResponse(BaseModel):
         None,
         ge=0,
         description="How many individual TTA passes scored at or above threshold_used",
+    )
+    views: list[ViewResult] | None = Field(
+        None, description="Per-pass score and thumbnail for each TTA view, identity first"
     )
     threshold_used: float = Field(
         ...,

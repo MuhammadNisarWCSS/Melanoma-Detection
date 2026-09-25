@@ -35,6 +35,9 @@ _reload_lock = asyncio.Lock()
 # In-memory cache for test metrics — populated lazily on first request.
 _test_metrics_cache: dict[str, Any] | None = None
 _LOCAL_TEST_METRICS = Path(os.environ.get("TEST_METRICS_PATH", "artifacts/test_metrics.json"))
+_LOCAL_SUBGROUP_METRICS = Path(
+    os.environ.get("SUBGROUP_METRICS_PATH", "artifacts/subgroup_metrics.json")
+)
 
 
 def _build_predictor(model_uri: str) -> Predictor:
@@ -125,7 +128,7 @@ app = FastAPI(
 
 # Same-origin in production (nginx proxies /api on the frontend's own port), so this
 # only needs to cover local dev (Vite on :3000) and the standalone hosted frontend.
-_default_origins = "http://localhost:3000,http://18.219.3.159:3000"
+_default_origins = "http://localhost:3000,http://3.18.225.100:3000"
 _cors_origins = os.environ.get("CORS_ORIGINS", _default_origins).split(",")
 
 app.add_middleware(
@@ -216,6 +219,22 @@ async def test_metrics() -> JSONResponse:
         logger.warning("Could not fetch test metrics from MLflow", error=str(exc))
 
     raise HTTPException(status_code=503, detail="Test metrics not available")
+
+
+@app.get("/subgroup-metrics", tags=["System"])
+async def subgroup_metrics() -> JSONResponse:
+    """Return per-subgroup (sex, age band, site) test performance.
+
+    Produced by ``scripts/subgroup_analysis.py``. 404 when the file is absent so the
+    frontend can hide the section rather than show an empty table.
+    """
+    if not _LOCAL_SUBGROUP_METRICS.exists():
+        raise HTTPException(status_code=404, detail="Subgroup metrics not available")
+    try:
+        return JSONResponse(json.loads(_LOCAL_SUBGROUP_METRICS.read_text(encoding="utf-8")))
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("Could not read subgroup_metrics.json", error=str(exc))
+        raise HTTPException(status_code=503, detail="Subgroup metrics unreadable") from exc
 
 
 @app.get("/metadata", tags=["System"])

@@ -526,7 +526,7 @@ manual deployment steps, no forgotten commands.
 
 Ties it together:
 
-1. You drop `mole.jpg` into the browser at `18.219.3.159:3000`, enter age 52, male, torso.
+1. You drop `mole.jpg` into the browser at `3.18.225.100:3000`, enter age 52, male, torso.
 2. React packages it into a `POST` to `/api/predict`. nginx forwards to FastAPI.
 3. FastAPI decodes the image. It shrinks the short side to 384 and crops the centre — same geometry
    as training.

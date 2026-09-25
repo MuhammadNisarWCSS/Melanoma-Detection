@@ -17,8 +17,8 @@ Lightning under Hydra configs, tracked in MLflow, served by FastAPI with test-ti
 out-of-distribution gating and saliency overlays, consumed by a React dashboard, and shipped to AWS
 through GitHub Actions.
 
-**Live stack:** [http://18.219.3.159:3000](http://18.219.3.159:3000) · API docs
-[`:8000/docs`](http://18.219.3.159:8000/docs) · MLflow [`:5000`](http://18.219.3.159:5000)
+**Live stack:** [http://3.18.225.100:3000](http://3.18.225.100:3000) · API docs
+[`:8000/docs`](http://3.18.225.100:8000/docs) · MLflow [`:5000`](http://3.18.225.100:5000)
 
 > **Not a medical device.** Research and portfolio demonstration only — see
 > [Model card](#model-card--limitations).
@@ -585,12 +585,12 @@ After a better training run the dashboard metrics update immediately, but predic
 loaded at backend startup — restart it to promote the new best-AUROC model:
 
 ```bash
-ssh <user>@18.219.3.159 'cd ~/cancer-detection && docker compose --project-directory . \
+ssh <user>@3.18.225.100 'cd ~/cancer-detection && docker compose --project-directory . \
   -f docker/docker-compose.yml -f docker/docker-compose.ecr.yml \
   -f docker/docker-compose.ec2.yml restart backend'
 ```
 
-> **No Elastic IP.** The public IP `18.219.3.159` is duplicated in
+> **No Elastic IP.** The public IP `3.18.225.100` is duplicated in
 > `serving/model_uri.DEFAULT_TRACKING_URI`, `configs/training/*.yaml`, `frontend/src/api/client.ts`,
 > `frontend/src/components/Navbar.tsx`, `scripts/republish_checkpoint.py`,
 > `scripts/prepare_mlflow_seed.py` and the docker/deploy files. They all move together.

@@ -44,4 +44,4 @@ seed: 42
 experiment_name: melanoma-detection
 # Hosted MLflow on EC2 (public IP). Override with env MLFLOW_TRACKING_URI
 # (e.g. http://localhost:5000) if you run a local tracking server instead.
-mlflow_uri: "http://18.219.3.159:5000"
+mlflow_uri: "http://3.18.225.100:5000"

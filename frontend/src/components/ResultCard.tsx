@@ -6,7 +6,6 @@ import type { PredictResponse } from '../api/client'
 interface Props {
   result: PredictResponse
   imageSrc: string | null
-  inputs?: { age: number; sex: string; site: string }
 }
 
 function ProbabilityGauge({
@@ -110,12 +109,21 @@ function DetailRow({
   )
 }
 
-export default function ResultCard({ result, imageSrc, inputs }: Props) {
+export default function ResultCard({ result, imageSrc }: Props) {
   const [showGradcam, setShowGradcam] = useState(false)
   const [showDetails, setShowDetails] = useState(false)
   const isMalignant = result.label === 1
   const isHighUncertainty = result.tta_std > 0.1
   const isOod = Boolean(result.out_of_distribution)
+  const nViews = result.n_views ?? 0
+  const flagged = result.views_flagged ?? 0
+  const intro = `To check the result doesn't depend on how the photo is turned, we flip and rotate it into ${nViews} copies and the model scores each one separately. The final score is the average. `
+  const viewsNote =
+    flagged === 0 || flagged === nViews
+      ? `${intro}All ${nViews} copies came out as ${
+          flagged === 0 ? 'benign' : 'malignant'
+        }, so the model was consistent.`
+      : `${intro}${flagged} copies came out as malignant and ${nViews - flagged} as benign. When the copies split like this, it is usually a borderline case.`
 
   return (
     <motion.div
@@ -243,30 +251,47 @@ export default function ResultCard({ result, imageSrc, inputs }: Props) {
                 />
                 {result.n_views != null && result.views_flagged != null && (
                   <DetailRow
-                    term="Views flagged"
-                    value={`${result.views_flagged} of ${result.n_views}`}
-                    note="Your photo is checked 8 times, flipped and rotated. The score is the average. If the views split, treat the result with more caution."
+                    term="Consistency check"
+                    value={`${result.views_flagged} of ${result.n_views} say malignant`}
+                    note={viewsNote}
                     warn={isHighUncertainty}
                   />
                 )}
-                <DetailRow
-                  term="Photo check"
-                  value={
-                    result.out_of_distribution == null
-                      ? 'Not checked'
-                      : isOod
-                        ? 'Unusual photo'
-                        : 'Looks like a dermoscopy image'
-                  }
-                  note="Compares your photo with the kind of images the model was trained on."
-                  warn={isOod}
-                />
-                {inputs && (
-                  <DetailRow
-                    term="Details used"
-                    value={`Age ${inputs.age}, ${inputs.sex.toLowerCase()}, ${inputs.site.toLowerCase()}`}
-                    note="Changing these can change the score."
-                  />
+                {result.views && result.views.length > 0 && (
+                  <div className="px-5 pb-4">
+                    <div className="grid grid-cols-4 gap-2">
+                      {result.views.map((v, i) => {
+                        const flaggedView = v.probability >= result.threshold_used
+                        return (
+                          <div key={i} className="text-center">
+                            <img
+                              src={`data:image/jpeg;base64,${v.image_b64}`}
+                              alt={`Copy ${i + 1} of your photo`}
+                              className={`aspect-square w-full rounded-lg border-2 object-cover ${
+                                flaggedView ? 'border-red-400/70' : 'border-emerald-400/60'
+                              }`}
+                            />
+                            <div
+                              className={`mt-1 font-mono text-[11px] ${
+                                flaggedView ? 'text-red-400' : 'text-emerald-500'
+                              }`}
+                            >
+                              {flaggedView ? 'Malignant' : 'Benign'}
+                              <span className="block text-[10px] opacity-70">
+                                {v.probability.toFixed(3)}
+                              </span>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                    <p className="mt-2 text-[11px] text-slate-600">
+                      These are the copies the model actually saw, starting with your original
+                      photo. Red means the model read that copy as malignant (its score was at or
+                      above the cutoff). Green means it read it as benign (below the cutoff). The
+                      small number is that copy's score.
+                    </p>
+                  </div>
                 )}
                 <p className="px-5 py-3.5 text-[11px] leading-relaxed text-slate-600">
                   In testing this model caught about 77% of melanomas and raised many false alarms,

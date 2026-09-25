@@ -7,7 +7,7 @@
 # API docs: http://localhost:8000/docs
 # MLflow:   http://localhost:5000
 #
-# Hosted EC2 (same stack via ECR): http://18.219.3.159:3000
+# Hosted EC2 (same stack via ECR): http://3.18.225.100:3000
 #   docker compose --project-directory . \
 #     -f docker/docker-compose.yml -f docker/docker-compose.ecr.yml \
 #     -f docker/docker-compose.ec2.yml up -d
