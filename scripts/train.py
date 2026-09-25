@@ -31,8 +31,8 @@ if hasattr(sys.stderr, "reconfigure"):
 
 from datetime import UTC
 
-import hydra
 import httpx
+import hydra
 import mlflow
 import pandas as pd
 import torch

@@ -18,6 +18,16 @@ if [ -f /seed/mlflow.db ] && [ ! -f /mlflow/.seed_applied ]; then
   echo "Seed complete."
 fi
 
+# The image installs an unpinned MLflow, so a rebuild can be newer than the schema
+# already in the mlflow-data volume (server refuses to start: "out-of-date database
+# schema"). Migrate in place, keeping a one-time backup of the pre-upgrade DB.
+if [ -f /mlflow/mlflow.db ]; then
+  if [ ! -f /mlflow/mlflow.db.pre-upgrade.bak ]; then
+    cp /mlflow/mlflow.db /mlflow/mlflow.db.pre-upgrade.bak
+  fi
+  mlflow db upgrade sqlite:////mlflow/mlflow.db
+fi
+
 exec mlflow server \
   --host 0.0.0.0 \
   --port 5000 \
