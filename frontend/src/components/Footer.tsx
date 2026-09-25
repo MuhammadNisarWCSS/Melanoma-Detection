@@ -7,13 +7,13 @@ export default function Footer() {
         <div className="flex items-center gap-2.5 text-slate-500">
           <Activity className="h-4 w-4 text-teal-400/60" strokeWidth={2} />
           <span className="font-display text-[13px]">
-            Derm<span className="text-teal-400/70">AI</span>
+            Melanoma Detection <span className="text-teal-400/70">AI</span>
           </span>
         </div>
 
         <div className="flex flex-col items-center gap-1 text-center sm:items-end">
           <p className="text-[11px] text-slate-700">
-            Not a diagnosis — always follow up with a dermatologist about anything that concerns you
+            A student project, not medical advice. If a spot worries you, see a dermatologist.
           </p>
           <div className="mt-1 flex items-center gap-3 text-[11px] text-slate-700">
             <a

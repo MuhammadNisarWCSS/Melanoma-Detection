@@ -24,6 +24,8 @@ export interface PredictResponse {
   label_str: string
   confidence: number
   tta_std: number
+  n_views?: number | null
+  views_flagged?: number | null
   threshold_used: number
   out_of_distribution?: boolean | null
   ood_distance?: number | null

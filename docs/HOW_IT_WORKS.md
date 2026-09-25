@@ -90,7 +90,7 @@ one pile. That's what `StratifiedGroupKFold` does in `scripts/prepare_data.py`:
 - "Group" = keep each patient's images together
 - "Stratified" = keep roughly the same 1.76% malignant rate in each pile
 
-The honest score after fixing this was **0.9116** instead of 0.9355. Lower — and real.
+The honest score after fixing this was **0.9069** instead of 0.9355. Lower — and real.
 
 There's also an automated test (`tests/unit/test_patient_leakage.py`) that checks every patient ID
 appears in only one pile. If anyone ever reintroduces the bug, the build fails. That's the real
@@ -258,7 +258,7 @@ More importantly, **the two kinds of error are not equally bad**:
 So the threshold is chosen deliberately to catch at least **80% of melanomas**, accepting whatever
 false-positive rate that requires. `src/cancer_detection/training/threshold.py` takes the best
 checkpoint, scores every validation image, and finds the highest cut-off that still catches 80%. The
-answer here: **0.3828**, saved to `artifacts/threshold.json`.
+answer here: **0.2348**, saved to `artifacts/threshold.json`.
 
 The subtle detail: it scores those validation images through *exactly the same pipeline the live
 website uses* — including the 8-pass averaging described in Part 6. Calibrate on a slightly
@@ -271,7 +271,7 @@ different pipeline and the number you calculated isn't the number the deployed s
 Run `scripts/evaluate.py` and the model faces the 1,657 test images it has never seen, from 102
 patients it has never seen. Here's what comes out, and what each number means:
 
-**AUROC = 0.9116.** "If I pick one random malignant image and one random benign image, how often
+**AUROC = 0.9069.** "If I pick one random malignant image and one random benign image, how often
 does the model score the malignant one higher?" 91% of the time. 0.5 would be coin-flipping; 1.0 is
 perfect. This is the headline metric because it only cares about *ranking*, which sidesteps the
 threshold question entirely.
@@ -279,19 +279,19 @@ threshold question entirely.
 **Sensitivity = 0.767.** Of the 30 actual melanomas, it caught 23 and missed 7. (Also called
 recall.)
 
-**Specificity = 0.837.** Of the 1,627 benign cases, it correctly cleared 1,362 and falsely flagged
-265.
+**Specificity = 0.905.** Of the 1,627 benign cases, it correctly cleared 1,472 and falsely flagged
+155.
 
-**PPV = 0.080.** *This is the number people find shocking.* Of the 288 cases it flagged as
-malignant, only 23 were. **92% of its alarms are false.**
+**PPV = 0.129.** *This is the number people find shocking.* Of the 178 cases it flagged as
+malignant, only 23 were. **87% of its alarms are false.**
 
 That is not a bug — it's arithmetic. When only 1.8% of cases are actually positive, there are 54×
 more benign cases available to be mistakenly flagged. Even a good model produces mostly false alarms
 at this prevalence. It's the same reason rare-disease screening tests always need confirmatory
 follow-up. This project reports the number rather than hiding it.
 
-**ECE = 0.177.** Measures whether the probabilities mean what they say — if the model says "0.30" a
-hundred times, do 30 turn out malignant? 0.177 is poor. So the score should be read as a *ranking*
+**ECE = 0.072.** Measures whether the probabilities mean what they say — if the model says "0.30" a
+hundred times, do 30 turn out malignant? 0.072 is decent but rests on just 30 positives. So the score should be read as a *ranking*
 ("this is more suspicious than that"), not as a literal probability of cancer.
 
 **Confidence intervals.** AUROC's is 0.870–0.951. With only 30 malignant test images, one case going
@@ -401,8 +401,8 @@ unavailable" until the model is ready. **Degrade, don't crash.**
 ## Part 7 — The website
 
 A **React** application (`frontend/`) written in TypeScript, built with Vite, styled with Tailwind.
-It provides the upload form, shows the result card with the probability, label, confidence,
-uncertainty and heat-map, and displays the model's honest test metrics.
+It provides the upload form, shows the result card with the probability and label, with the
+view-agreement figure and heat-map tucked behind expandable sections, and displays the model's honest test metrics.
 
 Notably, those metrics aren't typed into the page by hand — they're read live from the
 experiment-tracking system. The website can't drift out of sync with reality.
@@ -535,8 +535,8 @@ Ties it together:
 5. The image is rendered 8 ways (original + 7 flips/rotations). Each goes through EfficientNet-B4;
    the age/sex/site vector goes through the small MLP; they merge; 8 probabilities come out.
 6. Average = 0.1847. Spread = 0.0312 (the 8 views agreed — good).
-7. 0.1847 is below the calibrated threshold 0.3828 → **benign**. Confidence is measured as distance
-   from *that* threshold, not from 0.5.
+7. 0.1847 is below the calibrated threshold 0.2348 → **benign**. (The API also returns a "confidence" value, the distance from that
+   threshold; the site no longer shows it.)
 8. HiResCAM reuses view #1 to produce a heat-map, encoded as text so it can travel inside JSON.
 9. JSON returns; React draws the result card, the heat-map overlay, the uncertainty, and the
    reminder that this isn't a medical device.
@@ -563,7 +563,7 @@ the same broken assumptions. Each was found by deliberately going looking: measu
 overlap, scoring the served artifact against the checkpoint, uploading the same image twice.
 
 That's why the repository contains a leakage test, a diagnostic script, an OOD detector and an
-explicit PPV of 0.080 in the README. The model is ordinary. The scepticism is the work.
+explicit PPV of 0.129 in the README. The model is ordinary. The scepticism is the work.
 
 ---
 

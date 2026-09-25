@@ -32,7 +32,7 @@ export default function Navbar() {
             <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-teal-400 ring-2 ring-[#fbf6f2]" />
           </div>
           <span className="font-display text-[16px] font-semibold tracking-tight text-slate-100">
-            Derm<span className="text-teal-400">AI</span>
+            Melanoma Detection <span className="text-teal-400">AI</span>
           </span>
         </div>
 

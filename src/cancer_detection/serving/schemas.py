@@ -36,6 +36,14 @@ class PredictResponse(BaseModel):
             "High values signal prediction uncertainty — a clinical safety flag."
         ),
     )
+    n_views: int | None = Field(
+        None, ge=1, description="Number of TTA passes averaged into the probability"
+    )
+    views_flagged: int | None = Field(
+        None,
+        ge=0,
+        description="How many individual TTA passes scored at or above threshold_used",
+    )
     threshold_used: float = Field(
         ...,
         description="Calibrated decision threshold applied to produce label",

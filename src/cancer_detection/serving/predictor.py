@@ -221,6 +221,8 @@ class Predictor:
             "label_str": "malignant" if label == 1 else "benign",
             "confidence": round(confidence, 4),
             "tta_std": round(std_prob, 4),
+            "n_views": len(tta_probs),
+            "views_flagged": int(sum(p >= self.threshold for p in tta_probs)),
             "threshold_used": self.threshold,
             "out_of_distribution": out_of_distribution,
             "ood_distance": None if ood_distance is None else round(float(ood_distance), 4),

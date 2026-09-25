@@ -6,9 +6,16 @@ import type { PredictResponse } from '../api/client'
 interface Props {
   result: PredictResponse
   imageSrc: string | null
+  inputs?: { age: number; sex: string; site: string }
 }
 
-function ProbabilityGauge({ probability, isMalignant }: { probability: number; isMalignant: boolean }) {
+function ProbabilityGauge({
+  probability,
+  isMalignant,
+}: {
+  probability: number
+  isMalignant: boolean
+}) {
   const radius = 54
   const stroke = 7
   const normalizedR = radius - stroke / 2
@@ -19,7 +26,11 @@ function ProbabilityGauge({ probability, isMalignant }: { probability: number; i
 
   return (
     <div className="flex flex-col items-center gap-2">
-      <svg width={radius * 2 + stroke} height={radius * 2 + stroke} viewBox={`0 0 ${radius * 2 + stroke} ${radius * 2 + stroke}`}>
+      <svg
+        width={radius * 2 + stroke}
+        height={radius * 2 + stroke}
+        viewBox={`0 0 ${radius * 2 + stroke} ${radius * 2 + stroke}`}
+      >
         {/* Track */}
         <circle
           cx={radius + stroke / 2}
@@ -41,7 +52,10 @@ function ProbabilityGauge({ probability, isMalignant }: { probability: number; i
           strokeDasharray={circumference}
           strokeDashoffset={offset}
           transform={`rotate(-90 ${radius + stroke / 2} ${radius + stroke / 2})`}
-          style={{ filter: `drop-shadow(0 0 8px ${color}55)`, transition: 'stroke-dashoffset 1s ease-out' }}
+          style={{
+            filter: `drop-shadow(0 0 8px ${color}55)`,
+            transition: 'stroke-dashoffset 1s ease-out',
+          }}
         />
         {/* Label */}
         <text
@@ -72,45 +86,36 @@ function ProbabilityGauge({ probability, isMalignant }: { probability: number; i
   )
 }
 
-function MetricBar({
-  label,
+function DetailRow({
+  term,
   value,
-  fill,
-  color,
+  note,
   warn = false,
 }: {
-  label: string
+  term: string
   value: string
-  fill: number
-  color: string
+  note: string
   warn?: boolean
 }) {
   return (
-    <div>
-      <div className="flex items-center justify-between mb-1.5">
-        <span className="text-[11px] font-mono uppercase tracking-widest text-slate-500">{label}</span>
-        <span className={`text-[13px] font-mono font-medium ${warn ? 'text-amber-400' : 'text-slate-200'}`}>{value}</span>
+    <div className="px-5 py-3.5">
+      <div className="flex items-baseline justify-between gap-4">
+        <dt className="text-slate-500">{term}</dt>
+        <dd className={`text-right font-medium ${warn ? 'text-amber-400' : 'text-slate-200'}`}>
+          {value}
+        </dd>
       </div>
-      <div className="h-[3px] overflow-hidden rounded-full bg-ink-600">
-        <motion.div
-          className="h-full rounded-full"
-          style={{ backgroundColor: color, boxShadow: `0 0 6px ${color}50` }}
-          initial={{ width: 0 }}
-          animate={{ width: `${Math.min(fill * 100, 100)}%` }}
-          transition={{ duration: 0.8, ease: 'easeOut', delay: 0.15 }}
-        />
-      </div>
+      <p className="mt-1 text-[11px] leading-snug text-slate-600">{note}</p>
     </div>
   )
 }
 
-export default function ResultCard({ result, imageSrc }: Props) {
-  const [showGradcam, setShowGradcam] = useState(true)
+export default function ResultCard({ result, imageSrc, inputs }: Props) {
+  const [showGradcam, setShowGradcam] = useState(false)
+  const [showDetails, setShowDetails] = useState(false)
   const isMalignant = result.label === 1
   const isHighUncertainty = result.tta_std > 0.1
   const isOod = Boolean(result.out_of_distribution)
-  const confidence = result.confidence
-  const pct = Math.round(result.probability * 100)
 
   return (
     <motion.div
@@ -132,10 +137,9 @@ export default function ResultCard({ result, imageSrc }: Props) {
               Image does not look like a dermoscopy photo
             </div>
             <p className="mt-1 text-[13px] leading-relaxed text-slate-400">
-              This upload sits outside the model&apos;s training distribution (contact
-              dermatoscope images from ISIC 2020). The {result.label_str} label below is
-              unreliable — clinical photos, screenshots, and heavily recompressed web
-              images are outside the intended use.
+              This upload sits outside the model&apos;s training distribution (contact dermatoscope
+              images from ISIC 2020). The {result.label_str} label below is unreliable — clinical
+              photos, screenshots, and heavily recompressed web images are outside the intended use.
               {result.ood_distance != null && (
                 <>
                   {' '}
@@ -190,52 +194,88 @@ export default function ResultCard({ result, imageSrc }: Props) {
                 : 'No significant malignant features identified'}
           </div>
         </div>
-        <div className="ml-auto text-right hidden sm:block">
-          <div className="font-mono text-[11px] text-slate-600">threshold</div>
-          <div className="font-mono text-[14px] text-slate-400">{result.threshold_used.toFixed(3)}</div>
-        </div>
       </div>
 
-      {/* ── Gauge + Metrics ── */}
-      <div className="grid grid-cols-2 gap-4">
-        {/* Gauge card */}
-        <div className="flex flex-col items-center justify-center rounded-2xl border border-ink-600/70 bg-ink-800/70 py-6 px-4">
-          <div className="mb-3 font-mono text-[10px] uppercase tracking-widest text-slate-600">Probability</div>
-          <ProbabilityGauge probability={result.probability} isMalignant={isMalignant} />
-          <div className="mt-3 font-mono text-[11px] text-slate-600">
-            raw: <span className="text-slate-400">{result.probability.toFixed(4)}</span>
-          </div>
+      {/* ── Probability ── */}
+      <div className="flex flex-col items-center justify-center rounded-2xl border border-ink-600/70 bg-ink-800/70 py-6 px-4">
+        <div className="mb-3 font-mono text-[10px] uppercase tracking-widest text-slate-600">
+          Probability
         </div>
+        <ProbabilityGauge probability={result.probability} isMalignant={isMalignant} />
+      </div>
 
-        {/* Metric bars */}
-        <div className="flex flex-col justify-center space-y-5 rounded-2xl border border-ink-600/70 bg-ink-800/70 p-5">
-          <MetricBar
-            label="Confidence"
-            value={`${Math.round(confidence * 100)}%`}
-            fill={confidence}
-            color="#c1683f"
-          />
-          <MetricBar
-            label="TTA Std"
-            value={result.tta_std.toFixed(4)}
-            fill={Math.min(result.tta_std * 8, 1)}
-            color={isHighUncertainty ? '#b3761c' : '#c1683f'}
-            warn={isHighUncertainty}
-          />
-          <div className="border-t border-ink-600 pt-3">
-            <div className="flex justify-between">
-              <span className="font-mono text-[10px] uppercase tracking-widest text-slate-600">Decision</span>
-              <span
-                className={`rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase ${
-                  isMalignant ? 'bg-red-500/10 text-red-400' : 'bg-emerald-500/10 text-emerald-400'
-                }`}
-              >
-                {pct}% ≥ {Math.round(result.threshold_used * 100)}%?{' '}
-                {result.probability >= result.threshold_used ? 'yes' : 'no'}
-              </span>
-            </div>
+      {/* ── Technical details (collapsed by default) ── */}
+      <div className="overflow-hidden rounded-2xl border border-ink-600/70 bg-ink-800/70">
+        <button
+          type="button"
+          onClick={() => setShowDetails((p) => !p)}
+          aria-expanded={showDetails}
+          className="flex w-full items-center justify-between px-5 py-3.5 text-left transition-colors hover:bg-ink-700/40"
+        >
+          <div>
+            <span className="text-[13px] font-medium text-slate-300">
+              How this score was worked out
+            </span>
+            <span className="ml-3 text-[11px] text-slate-600">Optional technical details</span>
           </div>
-        </div>
+          {showDetails ? (
+            <ChevronUp className="h-4 w-4 text-slate-600" />
+          ) : (
+            <ChevronDown className="h-4 w-4 text-slate-600" />
+          )}
+        </button>
+        <AnimatePresence>
+          {showDetails && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.25 }}
+              className="overflow-hidden"
+            >
+              <dl className="divide-y divide-ink-600/40 border-t border-ink-600/50 text-[12px]">
+                <DetailRow
+                  term="Score vs. cutoff"
+                  value={`${result.probability.toFixed(3)} ${
+                    result.probability >= result.threshold_used ? '≥' : '<'
+                  } ${result.threshold_used.toFixed(3)}`}
+                  note="The cutoff is set so the model catches about 80% of melanomas in testing. A score at or above it is flagged."
+                />
+                {result.n_views != null && result.views_flagged != null && (
+                  <DetailRow
+                    term="Views flagged"
+                    value={`${result.views_flagged} of ${result.n_views}`}
+                    note="Your photo is checked 8 times, flipped and rotated. The score is the average. If the views split, treat the result with more caution."
+                    warn={isHighUncertainty}
+                  />
+                )}
+                <DetailRow
+                  term="Photo check"
+                  value={
+                    result.out_of_distribution == null
+                      ? 'Not checked'
+                      : isOod
+                        ? 'Unusual photo'
+                        : 'Looks like a dermoscopy image'
+                  }
+                  note="Compares your photo with the kind of images the model was trained on."
+                  warn={isOod}
+                />
+                {inputs && (
+                  <DetailRow
+                    term="Details used"
+                    value={`Age ${inputs.age}, ${inputs.sex.toLowerCase()}, ${inputs.site.toLowerCase()}`}
+                    note="Changing these can change the score."
+                  />
+                )}
+                <p className="px-5 py-3.5 text-[11px] leading-relaxed text-slate-600">
+                  In testing this model caught about 77% of melanomas and raised many false alarms,
+                  so a result here is a nudge, not an answer.
+                </p>
+              </dl>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* ── GradCAM ── */}
@@ -292,17 +332,18 @@ export default function ResultCard({ result, imageSrc }: Props) {
         >
           <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
           <p className="text-[13px] leading-relaxed text-slate-400">
-            <span className="font-medium text-amber-400">High prediction uncertainty</span> — TTA std{' '}
-            <span className="font-mono">{result.tta_std.toFixed(4)}</span> &gt; 0.10. Consider
-            improving image quality or acquiring multiple views.
+            <span className="font-medium text-amber-400">The views disagreed</span>. The 8 versions
+            of your photo gave scores that varied by{' '}
+            <span className="font-mono">{result.tta_std.toFixed(2)}</span>, so treat this result
+            with extra caution. A sharper, better-lit photo may help.
           </p>
         </motion.div>
       )}
 
       {/* ── Disclaimer ── */}
       <p className="px-2 text-center text-[11px] leading-relaxed text-slate-700">
-        For research purposes only. Results do not constitute medical advice.
-        All findings should be reviewed by a qualified dermatologist.
+        For research purposes only. Results do not constitute medical advice. All findings should be
+        reviewed by a qualified dermatologist.
       </p>
     </motion.div>
   )

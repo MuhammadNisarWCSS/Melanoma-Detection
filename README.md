@@ -32,7 +32,7 @@ corrected it. An early version of this project reported **0.9355 test AUROC**. T
 wrong: the split was per-image, so 1,656 of 1,657 test images shared a patient with training, and
 separately the model being served to the website was not the checkpoint the metrics described. Both
 failures were found by auditing the project's own results, and both are now enforced by tests and
-by code. The honest, patient-disjoint number is **0.9116**.
+by code. The honest, patient-disjoint number is **0.9069**.
 
 | | This project |
 |---|---|
@@ -173,9 +173,6 @@ malignant 0.914 vs 0.351) is still large, and is exactly the gap a leaked split 
 - **TTA.** Eight dihedral symmetries of the square; probabilities averaged, standard deviation
   returned as `tta_std`. Index 0 is the identity, so `Predictor` reuses that pass for the saliency
   map instead of running a ninth forward.
-- **Confidence against the calibrated threshold, not 0.5.** The decision boundary is ~0.38, so
-  `confidence = |p − t| / max(t, 1−t)`. A prediction just past the boundary reads as low confidence
-  — which is what it is.
 - **OOD gate.** The model is a *dermoscopy* classifier. `serving/ood.py` caches backbone embeddings
   for a sample of training images, PCA-projects them (1792-d is far too high for a stable covariance
   at this sample size), and flags uploads past the 99th percentile of Mahalanobis distance. The
@@ -190,41 +187,109 @@ malignant 0.914 vs 0.351) is still large, and is exactly the gap a leaked split 
   blocking load made Docker healthchecks fail). `/health` stays 200 with `model_loaded: false`;
   prediction endpoints return 503 until the model is up.
 
+### How each number is calculated
+
+Everything below happens in `Predictor.predict` (`serving/predictor.py`) for one uploaded photo.
+
+**Probability.** The photo is centre-cropped to a square and resized to 384×384. The age, sex and
+site are encoded into a 3-number vector. The image goes through EfficientNet-B4 to give a 1,792-number
+summary, the metadata goes through a small MLP to give 32 numbers, and the fusion head turns the
+two into a single logit. A sigmoid converts the logit to a value between 0 and 1. That is done for
+8 flipped/rotated copies of the photo (test-time augmentation), and the 8 values are averaged. The
+average is the probability shown on the gauge. It is a ranking score, not a literal chance of
+cancer: focal loss and oversampling push the raw values around, and the test-set ECE is 0.072.
+
+**Cutoff and verdict.** `label = 1` if `probability ≥ threshold`, else 0. The threshold (currently
+0.2348, in `artifacts/threshold.json`) is the highest value that still catches at least 80% of
+melanomas on the validation split, using the same 8-pass average as the API. It sits well below 0.5
+on purpose, since missing a melanoma is worse than a false alarm.
+
+**Confidence (API only, no longer shown in the UI).** `confidence = |p − t| / max(t, 1 − t)`, the
+distance from the cutoff scaled to 0–1. It is not a probability of being right, and it is lopsided:
+with `t = 0.2348` a benign result can never score above 0.31, because `p` cannot fall further than
+0.2348 below the cutoff, while a malignant one can reach 1.0. A confidence of 33% means the score
+was about 0.49 (a malignant call), whereas the same 33% could never occur on a benign call. The
+field is still in the response for API users, but the site no longer displays it because it reads as
+"33% sure", which it isn't.
+
+**View agreement (`tta_std`).** The population standard deviation of the 8 probabilities. If a
+flipped photo gets a very different score, the model is reacting to orientation rather than the
+lesion, which is a sign of an unstable prediction. The site shows it inside the collapsed details,
+and shows a warning when it exceeds 0.10. That cutoff is a judgement call, not a calibrated value,
+so treat the warning as a hint.
+
+**Out-of-distribution flag.** The base view's 1,792-number summary is compared with a cloud of
+training-image summaries using Mahalanobis distance after PCA. Past the 99th percentile of a
+held-out slice, `out_of_distribution` is true and the UI warns that the label is unreliable.
+
+**Heatmap (HiResCAM).** The model is run once more on the base view with gradients on. At the last
+convolutional layer (`bn2`, a 12×12 grid of features), each cell's activation is multiplied by the
+gradient of the predicted class's logit with respect to that activation, summed over channels, and
+negative values are dropped. High values mark cells that pushed the score toward the **predicted**
+class (toward malignant for a malignant call, toward benign for a benign call). The outer ring of
+cells is zeroed because it carries a padding artifact, outliers are clipped, and the map is upsampled
+and overlaid on the photo. Metadata is held fixed so the map reflects the image alone. It shows what
+the model responded to, not where the disease is, and it is computed on one view only.
+
 ---
 
 ## Results
 
 All numbers below come from `artifacts/test_metrics.json` (`python scripts/evaluate.py`), on the
 patient-disjoint test split: 1,657 images, 30 malignant, 1.81% prevalence, at the calibrated
-threshold 0.3828. Confidence intervals are bootstrap.
+threshold 0.2348. Confidence intervals are bootstrap.
 
 | Metric | Value | 95% CI |
 |---|---|---|
-| Test AUROC | **0.9116** | 0.870 – 0.951 |
-| Test pAUC | 0.8670 | 0.765 – 0.956 |
-| Sensitivity | 0.767 (23/30) | 0.633 – 0.900 |
-| Specificity | 0.837 | 0.819 – 0.854 |
-| PPV / NPV | 0.080 / 0.995 | — |
-| F1 | 0.145 | — |
-| ECE | 0.177 | — |
-| Val AUROC (model selection) | 0.9143 | — |
+| Test AUROC | **0.9069** | 0.863 – 0.949 |
+| Test pAUC | 0.6908 | 0.566 – 0.862 |
+| Sensitivity | 0.767 (23/30) | 0.600 – 0.900 |
+| Specificity | 0.905 | 0.891 – 0.919 |
+| PPV / NPV | 0.129 / 0.995 | — |
+| F1 | 0.221 | — |
+| ECE | 0.072 | — |
+| Val AUROC (model selection) | 0.9252 | — |
 
 **Before vs after the leakage fix.** The drop is the correct outcome, not a regression:
 
 | Split construction | Test AUROC | Sensitivity | Specificity | Status |
 |---|---|---|---|---|
 | Image-level split (patients shared) | 0.9355 | 0.966 | 0.785 | Inflated — do not cite |
-| Patient-grouped `StratifiedGroupKFold` | **0.9116** | 0.767 | 0.837 | Held out |
+| Patient-grouped `StratifiedGroupKFold` | **0.9069** | 0.767 | 0.905 | Held out |
 
 Two caveats worth stating plainly. **PPV is 0.080** — at 1.8% prevalence and a sensitivity-first
-operating point, 265 of 288 flagged images are false positives; that is the deliberate trade, not a
-bug. **ECE is 0.177**, which is poor in absolute terms, but probabilities here live far below 0.5 by
-construction (the operating threshold is 0.38), so ranking metrics (AUROC, pAUC) describe this model
-far better than a single calibration headline would.
+operating point, 155 of 178 flagged images are false positives; that is the deliberate trade, not a
+bug. **ECE is 0.072**, which is acceptable but not something to lean on: probabilities here live far below
+0.5 by construction (the operating threshold is 0.23), so ranking metrics (AUROC, pAUC) describe this
+model better than a single calibration number would. With only 30 positives, every interval above is
+wide; sensitivity could plausibly be anywhere from 0.60 to 0.90.
 
 For context, top-10 ISIC 2020 leaderboard solutions score ~0.94–0.96 AUC using ensembles of larger
 models, higher resolution and external data. This project prioritises one honest single-model
 baseline over leaderboard chasing.
+
+### Subgroup performance
+
+`python scripts/subgroup_analysis.py` splits the test predictions by sex, age and site
+(`artifacts/subgroup_metrics.json`). The subgroups are tiny, so read these as "where the model is
+unproven", not as estimates.
+
+| Subgroup | Images | Malignant | Sensitivity | Specificity | AUROC |
+|---|---|---|---|---|---|
+| Female | 833 | 12 | 0.67 | 0.93 | 0.87 |
+| Male | 824 | 18 | 0.83 | 0.88 | 0.93 |
+| Age < 40 | 429 | 5 | **0.40** | 0.94 | 0.74 |
+| Age 40–59 | 941 | 7 | 0.71 | 0.92 | 0.94 |
+| Age 60+ | 287 | 18 | 0.89 | 0.80 | 0.89 |
+| Lower extremity | 446 | 5 | **0.40** | 0.91 | 0.73 |
+| Torso | 818 | 8 | 0.75 | 0.91 | 0.94 |
+| Upper extremity | 244 | 11 | 0.91 | 0.85 | 0.91 |
+| Head / neck | 87 | 6 | 0.83 | 0.91 | 0.96 |
+
+The weak spots are young patients and lower-limb lesions (2 of 5 malignant caught in each). Older
+patients get the best sensitivity but the worst specificity, which is what a model leaning on age
+would do. Palms/soles and oral/genital sites have no malignant test cases at all, so the model is
+untested there.
 
 ---
 
@@ -426,7 +491,7 @@ curl -X POST http://localhost:8000/predict \
   "label_str": "benign",
   "confidence": 0.3209,
   "tta_std": 0.0312,
-  "threshold_used": 0.3828,
+  "threshold_used": 0.2348,
   "out_of_distribution": false,
   "ood_distance": 21.4,
   "gradcam_heatmap_b64": "iVBORw0KGgo..."
@@ -561,9 +626,10 @@ flowchart TD
 | **Intended use** | Research / portfolio demonstration of an end-to-end ML system. **Not a medical device.** Not for diagnosis, triage, or clinical decision-making. |
 | **Training data** | ISIC 2020 training set only — contact dermoscopy, 1.76% malignant. Skin tones and acquisition devices follow the ISIC contributor mix and are not globally representative. |
 | **Out of scope** | Clinical (non-dermoscopic) photos, phone snapshots, screenshots, histopathology slides, non-melanoma skin cancers as a primary task. |
-| **Operating point** | Threshold 0.383, chosen for sensitivity ≥ 0.80 on validation. On the test split that yields sensitivity 0.767, specificity 0.837, **PPV 0.080** — 265 false positives against 23 true ones. A "benign" call is not a clearance. |
+| **Operating point** | Threshold 0.235, chosen for sensitivity ≥ 0.80 on validation. On the test split that yields sensitivity 0.767, specificity 0.905, **PPV 0.129** — 155 false positives against 23 true ones. A "benign" call is not a clearance. |
 | **Known failure modes** | Heavily recompressed or low-resolution images; rulers, watermarks and dense hair unlike the training cache; anything the OOD detector flags (`out_of_distribution: true` in the API response). |
-| **Calibration** | ECE 0.177 on the test split. Treat the score as a ranking, not as a probability of malignancy. |
+| **Subgroup gaps** | Sensitivity drops to 0.40 for patients under 40 and for lower-extremity lesions (5 malignant cases each); see [Subgroup performance](#subgroup-performance). No test coverage for palms/soles or oral/genital sites. |
+| **Calibration** | ECE 0.072 on the test split. Treat the score as a ranking, not as a probability of malignancy. |
 | **Human oversight** | Any real-world use requires a qualified clinician. The saliency overlay is an explanation aid, not a localisation of disease. |
 
 ---

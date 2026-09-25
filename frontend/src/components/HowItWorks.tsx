@@ -32,7 +32,7 @@ export default function HowItWorks() {
         >
           <p className="mb-2 text-[13px] font-medium text-teal-400">How it works</p>
           <h2 className="font-display text-[28px] font-semibold tracking-tight text-slate-100">
-            Three steps. About ten seconds.
+            Three steps, usually under a minute.
           </h2>
         </motion.div>
 
@@ -65,8 +65,8 @@ export default function HowItWorks() {
           viewport={{ once: true }}
           transition={{ duration: 0.4, delay: 0.2 }}
         >
-          This tool doesn't replace a dermatologist — think of it as a second pair of eyes
-          before you decide whether to book an appointment.
+          The model misses some melanomas and flags many harmless moles, so a "benign" result is
+          not a clearance. Use it to help decide whether to book an appointment, not to skip one.
         </motion.p>
       </div>
     </section>

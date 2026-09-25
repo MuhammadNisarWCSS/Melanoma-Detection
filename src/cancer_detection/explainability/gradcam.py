@@ -112,11 +112,39 @@ class GradCAMWrapper:
         with torch.enable_grad():
             with HiResCAM(model=wrapper, target_layers=[self._target_layer]) as cam:
                 targets = [BinaryClassifierOutputTarget(target_category)]
-                grayscale_cam = cam(
-                    input_tensor=input_batch,
-                    targets=targets,
-                )
-        grayscale_cam = grayscale_cam[0]  # (H_cam, W_cam)
+                # Run forward+backward to populate activations/gradients; we don't
+                # use the returned map (see below), only the side effect.
+                cam(input_tensor=input_batch, targets=targets)
+
+                # bn2 carries a handful of border cells with input-independent
+                # |activation*gradient| (a padding artifact of the backbone's conv
+                # stack — see _get_target_layer), visible as a fixed corner hotspot
+                # on every image. pytorch-grad-cam's own pipeline upsamples to the
+                # full image size *before* we can touch it, which smears those few
+                # border cells across a large chunk of the output. So we recompute
+                # the HiResCAM map ourselves at raw feature-map resolution (e.g.
+                # 12x12), zero its outer ring — where the artifact lives and real
+                # lesion evidence never does, since dermoscopy shots are lesion-
+                # centred — and only then clip outliers and upsample.
+                layer_activations = cam.activations_and_grads.activations[0][0].numpy()  # (C, h, w)
+                layer_grads = cam.activations_and_grads.gradients[0][0].numpy()  # (C, h, w)
+                raw_cam = np.maximum((layer_grads * layer_activations).sum(axis=0), 0)  # (h, w)
+
+        border = 1
+        if raw_cam.shape[0] > 2 * border and raw_cam.shape[1] > 2 * border:
+            raw_cam[:border, :] = 0
+            raw_cam[-border:, :] = 0
+            raw_cam[:, :border] = 0
+            raw_cam[:, -border:] = 0
+
+        # A handful of interior outlier cells can still saturate a naive min-max
+        # scale; clip to the 99th percentile before reuse so they can't wash out
+        # genuine, spatially broader lesion activation.
+        clip_val = np.percentile(raw_cam, 99)
+        if clip_val > 0:
+            raw_cam = np.clip(raw_cam, 0, clip_val) / clip_val
+
+        grayscale_cam = raw_cam
 
         # Resize original image for overlay; normalise to [0, 1]
         img_resized = cv2.resize(original_image, (image_size, image_size))
