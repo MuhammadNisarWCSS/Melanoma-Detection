@@ -174,6 +174,11 @@ interface MetricPoint {
 const VAL_AUROC_KEYS = ['val/auroc', 'val_auroc', 'validation_auroc'] as const
 const VAL_F1_KEYS = ['val/f1', 'val_f1', 'validation_f1'] as const
 const VAL_LOSS_KEYS = ['val/loss', 'val_loss'] as const
+// Peak-epoch values training logs once, directly on the run — read these first so
+// the page never needs the fragile per-run metric-history fetches below.
+const BEST_AUROC_KEYS = ['best/val_auroc'] as const
+const BEST_F1_KEYS = ['best/val_f1'] as const
+const BEST_LOSS_KEYS = ['best/val_loss'] as const
 const TEST_AUROC_KEYS = ['test/auroc', 'test_auroc'] as const
 const TEST_SENS_KEYS = ['test/sensitivity', 'test_sensitivity'] as const
 const TEST_SPEC_KEYS = ['test/specificity', 'test_specificity'] as const
@@ -207,8 +212,10 @@ async function fetchMetricHistory(
   url.searchParams.set('metric_key', metricKey)
   url.searchParams.set('max_results', '25000')
 
+  // Only the legacy (pre-best/*) fallback path takes this route now, so it runs
+  // rarely — a generous timeout here isn't a routine per-load cost.
   const res = await fetch(url.toString(), {
-    signal: AbortSignal.timeout(5000),
+    signal: AbortSignal.timeout(15000),
   })
   if (!res.ok) return []
 
@@ -339,18 +346,32 @@ export async function fetchMLflowStats(): Promise<MLflowStats> {
       const startTime = Number(info.start_time || 0)
       const endTime = Number(info.end_time || 0)
 
-      const fallback = {
-        auroc: firstPresent(metrics, VAL_AUROC_KEYS),
-        f1: firstPresent(metrics, VAL_F1_KEYS),
-        loss: firstPresent(metrics, VAL_LOSS_KEYS),
+      // Runs from current train.py already carry the peak epoch's metrics under
+      // best/* — logged once, at training time, so no client-side recomputation
+      // is needed. Only runs from before that existed (or with gaps in that
+      // logging) fall through to the slower per-run history fetch below.
+      const bestAuroc = firstPresent(metrics, BEST_AUROC_KEYS)
+      let peak: { val_auroc: number | null; val_f1: number | null; val_loss: number | null }
+      if (bestAuroc != null) {
+        peak = {
+          val_auroc: bestAuroc,
+          val_f1: firstPresent(metrics, BEST_F1_KEYS),
+          val_loss: firstPresent(metrics, BEST_LOSS_KEYS),
+        }
+      } else {
+        const fallback = {
+          auroc: firstPresent(metrics, VAL_AUROC_KEYS),
+          f1: firstPresent(metrics, VAL_F1_KEYS),
+          loss: firstPresent(metrics, VAL_LOSS_KEYS),
+        }
+        peak = runId
+          ? await fetchPeakValMetrics(runId, fallback)
+          : {
+              val_auroc: fallback.auroc,
+              val_f1: fallback.f1,
+              val_loss: fallback.loss,
+            }
       }
-      const peak = runId
-        ? await fetchPeakValMetrics(runId, fallback)
-        : {
-            val_auroc: fallback.auroc,
-            val_f1: fallback.f1,
-            val_loss: fallback.loss,
-          }
 
       return {
         run_id: runId,
