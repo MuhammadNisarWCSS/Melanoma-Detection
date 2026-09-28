@@ -1,4 +1,4 @@
-# Melanoma Detection: Multimodal Classifier, Trained and Shipped End to End
+# Melanoma Detection, a Multimodal Classifier Trained and Shipped End to End
 
 [![CI](https://github.com/MuhammadNisarWCSS/Melanoma-Detection/actions/workflows/ci.yml/badge.svg)](https://github.com/MuhammadNisarWCSS/Melanoma-Detection/actions/workflows/ci.yml)
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://python.org)
@@ -18,7 +18,7 @@ an EfficientNet-B4 image branch fused with a small patient-metadata network, tra
 MLflow, served via FastAPI with test-time augmentation and an out-of-distribution check, presented
 through a React dashboard, and deployed to AWS via GitHub Actions.
 
-**Live demo:** [melanomadetection.com](https://melanomadetection.com) · API docs at
+**Live demo** [melanomadetection.com](https://melanomadetection.com) · API docs at
 [melanomadetection.com/api/docs](https://melanomadetection.com/api/docs) · experiment tracking at
 [melanomadetection.com/mlflow](https://melanomadetection.com/mlflow/)
 
@@ -33,16 +33,16 @@ Many portfolio machine learning projects stop at reporting a favorable metric. T
 instead documents a case where an initial result was found to be incorrect, diagnosed, corrected,
 and then guarded against with automated tooling so the same failure cannot recur silently.
 
-An early version of this pipeline reported a test AUROC of 0.9355. That figure was inaccurate: the
+An early version of this pipeline reported a test AUROC of 0.9355. That figure was inaccurate. The
 train/test split was performed per image rather than per patient, causing 1,656 of the 1,657
 nominally "held-out" test images to share a patient with the training set. The model was
-therefore not being evaluated on genuinely unseen data — it was, in part, recognizing skin it had
+therefore not being evaluated on genuinely unseen data. It was, in part, recognizing skin it had
 already encountered during training. After correcting the split to be patient-disjoint, the
-honest test AUROC came out to 0.9069. A second, independent defect was also identified: the
+honest test AUROC came out to 0.9069. A second, independent defect was also identified. The
 training script was deploying the model's final training epoch rather than its best epoch, so the
 live service was silently running weights that underperformed relative to the metrics being
 reported. Both defects are representative of failures that appear correct in a demonstration but
-fail silently in production. Both are now caught automatically: a CI test fails the build if any
+fail silently in production. Both are now caught automatically. A CI test fails the build if any
 patient ever appears in more than one split, and the training script reloads and verifies the
 best checkpoint before it is deployed.
 
@@ -64,8 +64,8 @@ best checkpoint before it is deployed.
 ### 1. Two numbers that shaped almost every decision
 
 The ISIC 2020 training set consists of 33,126 dermoscopy images from 2,056 patients, of which
-only 584 images (1.76%) are malignant. These two characteristics — heavy clustering by patient and
-extreme class imbalance — inform nearly every design decision described below.
+only 584 images (1.76%) are malignant. These two characteristics, heavy clustering by patient and
+extreme class imbalance, inform nearly every design decision described below.
 
 The clustering is significant because a single patient typically contributes roughly a dozen
 photographs of their own skin, often the same lesion captured from slightly different angles. A
@@ -75,7 +75,7 @@ by recognizing melanoma. This is precisely the defect described above.
 
 `scripts/prepare_data.py` splits with `StratifiedGroupKFold` grouped on `patient_id`, keeps that
 ID in the output CSVs, and asserts the splits are patient-disjoint before writing anything to
-disk:
+disk.
 
 | Split | Images | Malignant | Patients |
 |---|---|---|---|
@@ -83,7 +83,7 @@ disk:
 | val | 5,245 | 94 | 326 |
 | test | 1,657 | 30 | 102 |
 
-Kaggle's official test set is unlabeled and therefore unusable for evaluation; the held-out set
+Kaggle's official test set is unlabeled and therefore unusable for evaluation. The held-out set
 above is instead carved out of the labeled training data.
 
 ### 2. Why the model looks at more than the photo
@@ -112,7 +112,7 @@ Raw ISIC photographs are as large as 6000 by 4000 pixels and require approximate
 milliseconds of CPU time each to decode, which would starve a GPU if performed on every epoch.
 `scripts/resize_images.py --size 448` builds a resized image cache once, and `configs/data/isic.yaml`
 directs training at that cache rather than the raw files. The `num_workers: 0` setting is
-deliberate rather than an oversight: Windows' process-spawning model deadlocked when the dataset
+deliberate rather than an oversight. Windows' process-spawning model deadlocked when the dataset
 was pickled to worker processes.
 
 ### 3. Addressing a dataset that is 98% one class
@@ -145,38 +145,38 @@ The deployed service correctly classified images drawn from the training set, ye
 genuine melanomas sourced from the web as benign. The following defects were identified during the
 resulting audit.
 
-**First defect: patient leakage.** `prepare_data.py` originally dropped `patient_id` entirely and
+**First defect, patient leakage.** `prepare_data.py` originally dropped `patient_id` entirely and
 used a plain per-image train/test split. On those CSVs, 1,656 of 1,657 test images, including all
 29 malignant ones, shared a patient with the training set. The 0.9355 AUROC that split produced
 was never a genuine held-out measurement.
 
-**Second defect: the wrong weights were deployed.** `scripts/train.py` called
+**Second defect, the wrong weights were deployed.** `scripts/train.py` called
 `mlflow.pytorch.log_model()` on the model object left in memory after `fit()` completed, and
 Lightning leaves the *final* epoch in memory, not the best one. The run in question peaked at
 epoch 2 with a validation AUROC of 0.922 and a training AUROC of 0.983, then continued training to
 epoch 7, where validation AUROC had dropped to 0.912 while training AUROC climbed to 0.995 (a
 clear overfitting signature). The site was serving epoch 7's weights while the logged metrics
 described epoch 2. `scripts/diagnose.py` quantified exactly how much that mattered on held-out
-images at a fixed threshold:
+images at a fixed threshold.
 
 | Model actually scored | Median malignant probability (test set) | Sensitivity | Specificity |
 |---|---|---|---|
 | Best checkpoint (epoch 2, val AUROC 0.922) | 0.351 | 0.966 | 0.750 |
 | What was actually being served (epoch 7) | 0.201 | 0.759 | 0.850 |
 
-**Third defect: "deterministic" test-time augmentation was not deterministic.** The rotation step
+**Third defect, "deterministic" test-time augmentation was not deterministic.** The rotation step
 used `A.RandomRotate90(p=1.0)`, which still samples a random rotation count even at probability 1.
 The same uploaded photo could therefore return a different score on every request, and the
 reported uncertainty measure was effectively measuring that randomness rather than the model's
 actual confidence.
 
-**Fourth defect: image geometry did not match between training and serving.** ISIC photographs are
-roughly 3:2. Validation and serving were both squashing them to a square with a plain resize,
+**Fourth defect, image geometry did not match between training and serving.** ISIC photographs are
+roughly 3 to 2. Validation and serving were both squashing them to a square with a plain resize,
 while training used a random resized crop that preserves aspect ratio. That mismatch was invisible
 in every metric computed at the time, because every metric was computed with the same defective
 transform.
 
-Each of these defects is now enforced in code rather than corrected as a one-time fix:
+Each of these defects is now enforced in code rather than corrected as a one-time fix.
 
 | Defect | Fix | Where it is enforced |
 |---|---|---|
@@ -192,7 +192,7 @@ Each of these defects is now enforced in code rather than corrected as a one-tim
 resemble web-sourced photographs, and any additional files provided. On the current model, images
 degraded to resemble web-sourced photographs score close to clean test images, indicating that the
 specific brittleness which originally motivated the compression augmentation no longer manifests.
-The gap between training and test scores remains large by design — precisely the gap that a leaked
+The gap between training and test scores remains large by design, precisely the gap that a leaked
 split would have concealed.
 
 ### 5. From checkpoint to prediction
@@ -204,8 +204,8 @@ split would have concealed.
 - **Out-of-distribution gate.** This model is a dermoscopy classifier, not a general skin photo
   classifier. `serving/ood.py` keeps a cached set of feature embeddings from training images,
   reduces them with PCA, and flags any upload whose embedding falls past the 99th percentile of
-  distance from that cluster. That percentile is calibrated on a held-out slice of the sample;
-  fitting it on the same data used to build the cluster would make normal training images appear
+  distance from that cluster. That percentile is calibrated on a held-out slice of the sample.
+  Fitting it on the same data used to build the cluster would make normal training images appear
   artificially close and trip real, unusual inputs far more often than the intended 1%.
 - **HiResCAM instead of GradCAM.** GradCAM averages gradients globally, which produced heatmaps
   that did not actually track the lesion in this model. HiResCAM keeps the gradients spatial. The
@@ -226,7 +226,7 @@ and site are encoded into a 3-number vector. The image passes through EfficientN
 numbers, and the fusion layer combines both into a single score, which a sigmoid converts to a
 value between 0 and 1. That process runs 8 times on flipped and rotated copies of the same photo,
 and the 8 results are averaged into the probability shown on the gauge. It is a ranking score, not
-a literal percentage likelihood of cancer: focal loss and oversampling shift the raw values, and
+a literal percentage likelihood of cancer. Focal loss and oversampling shift the raw values, and
 the test-set calibration error (ECE) is 0.072.
 
 **The cutoff.** A photo is labeled malignant if its probability is at or above the threshold,
@@ -237,7 +237,7 @@ considered far more costly than an unnecessary false positive.
 
 **Confidence (still in the API, no longer shown on the site).** This is the distance from the
 probability to the cutoff, scaled to a 0 to 1 range. It is not a probability of being correct, and
-it is asymmetric: with a threshold of 0.2348, a benign result can never score above about 0.31,
+it is asymmetric. With a threshold of 0.2348, a benign result can never score above about 0.31,
 while a malignant one can reach 1.0. The field remains in the API response for anyone building on
 it, but the dashboard no longer displays it, because a figure such as "33% confidence" implies a
 meaning the metric does not actually carry.
@@ -279,18 +279,18 @@ threshold of 0.2348. Confidence intervals are bootstrapped.
 | Validation AUROC (used for model selection) | 0.9252 | not computed |
 
 **Before and after the leakage fix**, for comparison. The drop is the correct outcome, not a
-regression:
+regression.
 
 | Split construction | Test AUROC | Sensitivity | Specificity |
 |---|---|---|---|
 | Per-image split, patients shared across sets | 0.9355 | 0.966 | 0.785 |
 | Patient-grouped split (current) | 0.9069 | 0.767 | 0.905 |
 
-Two caveats are worth stating explicitly. Positive predictive value is only 0.129: at 1.8%
+Two caveats are worth stating explicitly. Positive predictive value is only 0.129. At 1.8%
 prevalence, with a threshold tuned for sensitivity, 155 of the 178 photos flagged as malignant are
 false positives. This is the deliberate cost of prioritizing sensitivity, not a flaw being
 concealed. With only 30 positive cases in the test set, every confidence interval above is
-correspondingly wide; sensitivity alone could plausibly fall anywhere between 0.60 and 0.90 on a
+correspondingly wide. Sensitivity alone could plausibly fall anywhere between 0.60 and 0.90 on a
 different random sample of the same size.
 
 For context, the top solutions on the original ISIC 2020 Kaggle leaderboard score approximately
@@ -311,8 +311,8 @@ threshold instead of snapping to the nearest sampled value.
 ### How it performs across different groups of patients
 
 `python scripts/subgroup_analysis.py` splits the test predictions by sex, age, and body site.
-These subgroups are small; the results below should be read as indicating where the model has not
-been proven, rather than as a precise estimate of real-world performance:
+These subgroups are small. The results below should be read as indicating where the model has not
+been proven, rather than as a precise estimate of real-world performance.
 
 | Subgroup | Images | Malignant | Sensitivity | Specificity | AUROC |
 |---|---|---|---|---|---|
@@ -365,7 +365,7 @@ flowchart TD
 ```
 
 **Config flow.** `configs/config.yaml` composes the data, model, and training configs with Hydra.
-No hyperparameters are hardcoded: `scripts/train.py` takes its entire configuration from this
+No hyperparameters are hardcoded. `scripts/train.py` takes its entire configuration from this
 tree, and `scripts/evaluate.py` recomposes the same tree so evaluation cannot silently drift from
 how the model was trained.
 
@@ -470,7 +470,7 @@ contract are in [CLAUDE.md](CLAUDE.md).
 docker compose --project-directory . -f docker/docker-compose.yml up --build
 ```
 
-Three containers: the site on port 3000, the API on port 8000, and MLflow on port 5000, with
+Three containers run, the site on port 3000, the API on port 8000, and MLflow on port 5000, with
 nginx proxying everything so the browser only needs to talk to one port. Environment-specific
 overlays layer on top of the same base file for pulling prebuilt images from ECR, running
 persistently on EC2, seeding MLflow history on first boot, or pointing at a local MLflow database
@@ -510,8 +510,8 @@ flowchart LR
     CI -->|gates merges| CD
 ```
 
-GPU training is performed on a local workstation; EC2 handles only CPU inference and tracking.
-This is a deliberate architectural choice rather than a limitation: it mirrors how production ML
+GPU training is performed on a local workstation. EC2 handles only CPU inference and tracking.
+This is a deliberate architectural choice rather than a limitation. It mirrors how production ML
 teams typically separate training from serving, and it keeps cloud costs proportional to serving
 traffic rather than to training compute.
 
@@ -524,7 +524,7 @@ traffic rather than to training compute.
 - **S3** carries a one-time export of local MLflow history via `scripts/prepare_mlflow_seed.py`.
   The first boot syncs that into a named Docker volume, and every later deploy keeps that same
   volume in place.
-- **GitHub secrets** the deploy workflow needs: AWS credentials, the AWS region, the EC2 host and
+- **GitHub secrets** the deploy workflow needs are AWS credentials, the AWS region, the EC2 host and
   SSH user and key, and the S3 URI for the MLflow seed.
 
 Once an improved training run finishes, the dashboard's metrics update immediately, since they are
@@ -537,9 +537,9 @@ however, so the backend needs a restart to pick up a newly promoted best model.
 
 ### CI/CD
 
-CI runs on every push and pull request to `main`: install PyTorch, run the linter and formatter
-check, run the type checker, run the unit tests with coverage, run integration tests against a
-real FastAPI test client, then upload coverage.
+CI runs on every push and pull request to `main`. It installs PyTorch, runs the linter and formatter
+check, runs the type checker, runs the unit tests with coverage, runs integration tests against a
+real FastAPI test client, then uploads coverage.
 
 CD runs on pushes to `main` that touch the app code, or can be triggered manually. It builds all
 three Docker images, tags and pushes them to ECR, copies the compose files to EC2 over SSH, pulls
