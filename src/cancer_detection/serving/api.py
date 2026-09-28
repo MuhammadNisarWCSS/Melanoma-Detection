@@ -21,7 +21,8 @@ from PIL import Image
 from cancer_detection.serving.model_uri import ensure_tracking_uri, resolve_model_uri
 from cancer_detection.serving.predictor import Predictor
 from cancer_detection.serving.schemas import PredictResponse
-from cancer_detection.serving.usage import record_prediction, stats as usage_stats
+from cancer_detection.serving.usage import record_prediction
+from cancer_detection.serving.usage import stats as usage_stats
 from cancer_detection.utils.logger import configure_logging, get_logger
 
 # File tee stays off in Docker; enable locally with LOG_TO_FILE=1 if desired.
