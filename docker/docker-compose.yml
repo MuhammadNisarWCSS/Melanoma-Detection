@@ -44,10 +44,13 @@ services:
       MLFLOW_TRACKING_URI: http://mlflow:5000
       THRESHOLD_PATH: /app/artifacts/threshold.json
       DEVICE: cpu
+      # Usage counter (see serving/usage.py); lives in its own volume so it survives redeploys.
+      USAGE_DB_PATH: /usage/usage.db
       # Leave unset to auto-pick the best val/auroc run from MLflow.
       # Pin with e.g.:
       # MODEL_URI: runs:/YOUR_RUN_ID/model
     volumes:
+      - usage-data:/usage
       # Live-update threshold without rebuilding (optional)
       - ./artifacts:/app/artifacts:ro
     depends_on:
@@ -74,3 +77,4 @@ services:
 
 volumes:
   mlflow-data:
+  usage-data:

@@ -5,6 +5,7 @@ import io
 import json
 import os
 import tempfile
+import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -20,6 +21,7 @@ from PIL import Image
 from cancer_detection.serving.model_uri import ensure_tracking_uri, resolve_model_uri
 from cancer_detection.serving.predictor import Predictor
 from cancer_detection.serving.schemas import PredictResponse
+from cancer_detection.serving.usage import record_prediction, stats as usage_stats
 from cancer_detection.utils.logger import configure_logging, get_logger
 
 # File tee stays off in Docker; enable locally with LOG_TO_FILE=1 if desired.
@@ -250,6 +252,12 @@ async def metadata() -> dict:
     }
 
 
+@app.get("/usage", include_in_schema=False)
+async def usage() -> dict:
+    """Aggregate prediction counts for the unlinked /usage page (no per-request data)."""
+    return await asyncio.to_thread(usage_stats)
+
+
 @app.post("/reload-model", tags=["System"])
 async def reload_model(
     x_reload_token: str | None = Header(default=None, alias="X-Reload-Token"),
@@ -313,10 +321,16 @@ async def predict(
         }
     )
 
+    started = time.perf_counter()
     try:
         result = predictor.predict(image_array, metadata_row, return_gradcam)
     except Exception as exc:
         logger.error("Prediction failed", error=str(exc))
         raise HTTPException(status_code=500, detail=f"Prediction error: {exc}") from exc
 
+    record_prediction(
+        result.get("label"),
+        result.get("out_of_distribution"),
+        (time.perf_counter() - started) * 1000,
+    )
     return PredictResponse(**result)
