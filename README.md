@@ -17,9 +17,9 @@ dataset with an EfficientNet-B4 image branch fused to a small metadata network, 
 MLflow, served through FastAPI with test-time augmentation and an out-of-distribution check, shown
 on a React dashboard, and deployed to AWS through GitHub Actions.
 
-**Live demo:** [http://3.18.225.100:3000](http://3.18.225.100:3000) · API docs at
-[`:8000/docs`](http://3.18.225.100:8000/docs) · experiment tracking at
-[`:5000`](http://3.18.225.100:5000)
+**Live demo:** [melanomadetection.com](https://melanomadetection.com) · API docs at
+[melanomadetection.com/api/docs](https://melanomadetection.com/api/docs) · experiment tracking at
+[melanomadetection.com/mlflow](https://melanomadetection.com/mlflow/)
 
 > This is a research and portfolio project, not a medical device. See
 > [Model card and limitations](#model-card-and-limitations) before drawing any conclusions from it.
@@ -406,112 +406,35 @@ Code quality is enforced with ruff, mypy, and pytest with coverage reporting.
 
 ## Running it yourself
 
-### Install
-
 ```bash
+# install
 git clone https://github.com/MuhammadNisarWCSS/Melanoma-Detection.git
 cd Melanoma-Detection
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
-```
 
-### Get the data
+# get the data: accept the rules on the ISIC 2020 Kaggle page, download train.csv
+# and jpeg.zip into data/raw/, then build the patient-grouped splits and image cache
+python scripts/prepare_data.py
+python scripts/resize_images.py --size 448
 
-Accept the rules on the
-[ISIC 2020 competition page](https://www.kaggle.com/competitions/siim-isic-melanoma-classification/data),
-then download `train.csv` and `jpeg.zip` into `data/raw/`:
+# train (fast_dev is a <60s CPU smoke test, run it first)
+python scripts/train.py training=fast_dev
+python scripts/train.py                              # full run, needs a GPU
 
-```
-data/raw/
-├── train.csv
-└── jpeg/
-    ├── train/          # 33,126 images, everything this project actually uses
-    │   └── ISIC_0015719.jpg …
-    └── test/           # unlabeled, safe to skip downloading
-```
+# evaluate the best checkpoint on the untouched, patient-disjoint test split
+python scripts/evaluate.py
 
-The Kaggle test set has no ground-truth labels, so it can't be used for evaluation. The held-out
-test split used throughout this project is instead carved out of the labeled training images.
-
-```bash
-python scripts/prepare_data.py               # patient-grouped train/val/test CSVs
-python scripts/resize_images.py --size 448    # build the resized image cache the configs expect
-```
-
-### Train
-
-```bash
-python scripts/train.py training=fast_dev     # a 2-batch CPU smoke test, under 60 seconds, run this first
-python scripts/train.py                       # a full run, needs a GPU
-python scripts/train.py model=efficientnet_b2 training.lr=1e-4              # override any config value
-python scripts/train.py -m model=efficientnet_b2,efficientnet_b4 training.lr=1e-3,5e-4   # sweep
-```
-
-Training streams metrics to the hosted MLflow server by default. Override that with the
-`MLFLOW_TRACKING_URI` environment variable rather than editing the config files. At the end of a run,
-`train.py` reloads the best checkpoint, not the final one, before logging and registering it.
-
-### Evaluate
-
-Training only ever sees the train and validation CSVs, and the validation set drives early stopping,
-checkpoint selection, and threshold calibration, so its numbers are optimistic by construction. The
-test set is untouched by any of that and shares no patients with either of the other two splits.
-
-```bash
-python scripts/evaluate.py                              # evaluates the best checkpoint at its calibrated threshold
-python scripts/evaluate.py --ckpt "1/<run_id>/checkpoints/epoch=2-auroc=0.9220.ckpt"
-python scripts/evaluate.py --threshold 0.5              # compare against the naive default threshold
-python scripts/evaluate.py --save-predictions           # save per-image probabilities for error analysis
-python scripts/diagnose.py --model <ckpt>                # the train/test/degraded/web drift audit
-```
-
-Results print as a report, get written to `artifacts/test_metrics.json` (what the dashboard reads),
-and get logged back onto the originating MLflow run.
-
-### Serve it locally
-
-```bash
+# serve it locally
 uvicorn cancer_detection.serving.api:app --host 0.0.0.0 --port 8000 --reload
-cd frontend && npm install && npm run dev     # http://localhost:3000
+cd frontend && npm install && npm run dev             # http://localhost:3000
+
+# run the test suite (synthetic fixtures, no download or trained model needed)
+pytest tests/unit tests/integration -v
 ```
 
-Swagger docs live at [localhost:8000/docs](http://localhost:8000/docs). Check that `/health` reports
-`model_loaded: true`. If it says `false` (the dashboard will show "API Online, No Model"), it means
-no logged model could be resolved yet. Either train a full run, or point at one explicitly:
-
-```bash
-MODEL_URI=models:/melanoma-classifier@champion uvicorn cancer_detection.serving.api:app --port 8000
-MODEL_URI=runs:/<run_id>/model uvicorn cancer_detection.serving.api:app --port 8000
-```
-
-```bash
-curl -X POST http://localhost:8000/predict \
-  -F "image=@/path/to/dermoscopy.jpg" \
-  -F "age_approx=52.0" -F "sex=male" -F "anatom_site=torso"
-```
-
-```json
-{
-  "probability": 0.1847,
-  "label": 0,
-  "label_str": "benign",
-  "confidence": 0.3209,
-  "tta_std": 0.0312,
-  "threshold_used": 0.2348,
-  "out_of_distribution": false,
-  "ood_distance": 21.4,
-  "gradcam_heatmap_b64": "iVBORw0KGgo..."
-}
-```
-
-### Run the tests
-
-```bash
-pytest tests/unit -v --cov=src/cancer_detection --cov-report=term-missing
-pytest tests/integration -v
-```
-
-The whole test suite runs on synthetic fixtures. No ISIC download and no trained model required.
+Full details on config overrides, sweeps, checkpoint selection, and the MLflow model-resolution
+contract are in [CLAUDE.md](CLAUDE.md).
 
 ---
 

@@ -266,7 +266,7 @@ def evaluate(args: argparse.Namespace) -> dict[str, float]:
 
     # ---- ROC curve and threshold sweep --------------------------------------
     roc = roc_curve_points(y_true, y_prob, max_points=200)
-    sweep = threshold_sweep(y_true, y_prob, n_points=100)
+    sweep = threshold_sweep(y_true, y_prob, n_points=100, include=[threshold])
 
     # ---- Backbone and val AUROC from checkpoint path ------------------------
     backbone: str | None = None

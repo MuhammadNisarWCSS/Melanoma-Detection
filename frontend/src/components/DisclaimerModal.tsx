@@ -52,7 +52,7 @@ export default function DisclaimerModal({ confirmLabel, onConfirm, onCancel }: P
           <p>
             The model gets things wrong. It can call a melanoma harmless, and it can flag a
             harmless mole. If a spot is changing, bleeding, itching, or just worrying you, see a
-            dermatologist, whatever result you get here.
+            dermatologist regardless of the result shown here.
           </p>
         </div>
         <div className="mt-6 flex gap-2">

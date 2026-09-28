@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle, Info, ChevronDown, ChevronUp } from 'lucide-react'
+import { AlertTriangle, CheckCircle, ChevronDown, ChevronUp } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useState } from 'react'
 import type { PredictResponse } from '../api/client'
@@ -117,13 +117,13 @@ export default function ResultCard({ result, imageSrc }: Props) {
   const isOod = Boolean(result.out_of_distribution)
   const nViews = result.n_views ?? 0
   const flagged = result.views_flagged ?? 0
-  const intro = `To check the result doesn't depend on how the photo is turned, we flip and rotate it into ${nViews} copies and the model scores each one separately. The final score is the average. `
+  const intro = `To confirm the result does not depend on the photo's orientation, the model evaluates ${nViews} rotated and mirrored copies of the image separately, and the final score is their average. `
   const viewsNote =
     flagged === 0 || flagged === nViews
-      ? `${intro}All ${nViews} copies came out as ${
+      ? `${intro}All ${nViews} copies were classified as ${
           flagged === 0 ? 'benign' : 'malignant'
-        }, so the model was consistent.`
-      : `${intro}${flagged} copies came out as malignant and ${nViews - flagged} as benign. When the copies split like this, it is usually a borderline case.`
+        }, indicating the model's prediction was consistent.`
+      : `${intro}${flagged} of the copies were classified as malignant and ${nViews - flagged} as benign. A split like this typically indicates a borderline case.`
 
   return (
     <motion.div
@@ -222,7 +222,7 @@ export default function ResultCard({ result, imageSrc }: Props) {
         >
           <div>
             <span className="text-[13px] font-medium text-slate-300">
-              How this score was worked out
+              How this score was calculated
             </span>
             <span className="ml-3 text-[11px] text-slate-600">Optional technical details</span>
           </div>
@@ -244,10 +244,10 @@ export default function ResultCard({ result, imageSrc }: Props) {
               <dl className="divide-y divide-ink-600/40 border-t border-ink-600/50 text-[12px]">
                 <DetailRow
                   term="Score vs. cutoff"
-                  value={`${result.probability.toFixed(3)} ${
+                  value={`Score ${result.probability.toFixed(3)} ${
                     result.probability >= result.threshold_used ? '≥' : '<'
-                  } ${result.threshold_used.toFixed(3)}`}
-                  note="The cutoff is set so the model catches about 80% of melanomas in testing. A score at or above it is flagged."
+                  } Cutoff ${result.threshold_used.toFixed(3)}`}
+                  note="The cutoff is set so the model correctly identifies at least 80% of melanomas during testing. A score at or above this cutoff is flagged as malignant."
                 />
                 {result.n_views != null && result.views_flagged != null && (
                   <DetailRow
@@ -286,17 +286,13 @@ export default function ResultCard({ result, imageSrc }: Props) {
                       })}
                     </div>
                     <p className="mt-2 text-[11px] text-slate-600">
-                      These are the copies the model actually saw, starting with your original
-                      photo. Red means the model read that copy as malignant (its score was at or
-                      above the cutoff). Green means it read it as benign (below the cutoff). The
-                      small number is that copy's score.
+                      These are the copies the model evaluated, starting with the original photo.
+                      Red indicates the model classified that copy as malignant (its score was at
+                      or above the cutoff); green indicates benign (below the cutoff). The number
+                      shown is that copy's score.
                     </p>
                   </div>
                 )}
-                <p className="px-5 py-3.5 text-[11px] leading-relaxed text-slate-600">
-                  In testing this model caught about 77% of melanomas and raised many false alarms,
-                  so a result here is a nudge, not an answer.
-                </p>
               </dl>
             </motion.div>
           )}
@@ -346,23 +342,6 @@ export default function ResultCard({ result, imageSrc }: Props) {
             )}
           </AnimatePresence>
         </div>
-      )}
-
-      {/* ── Uncertainty Warning ── */}
-      {isHighUncertainty && (
-        <motion.div
-          initial={{ opacity: 0, scale: 0.97 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="flex items-start gap-3 rounded-xl border border-amber-400/20 bg-amber-400/5 p-4"
-        >
-          <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
-          <p className="text-[13px] leading-relaxed text-slate-400">
-            <span className="font-medium text-amber-400">The views disagreed</span>. The 8 versions
-            of your photo gave scores that varied by{' '}
-            <span className="font-mono">{result.tta_std.toFixed(2)}</span>, so treat this result
-            with extra caution. A sharper, better-lit photo may help.
-          </p>
-        </motion.div>
       )}
 
       {/* ── Disclaimer ── */}

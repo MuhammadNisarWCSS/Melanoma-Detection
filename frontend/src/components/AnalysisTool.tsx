@@ -42,7 +42,7 @@ const TRUST_POINTS = [
   {
     icon: Stethoscope,
     title: 'Not a diagnosis',
-    detail: "It's a rough guide to help you decide whether to see a doctor.",
+    detail: "It's a machine learning demo, not medical advice. See a dermatologist for anything that concerns you.",
   },
 ]
 
@@ -190,15 +190,15 @@ export default function AnalysisTool() {
           transition={{ duration: 0.5 }}
         >
           <p className="mb-3 text-[13px] font-medium text-teal-400">
-            A free second look at a spot you're unsure about
+            A student machine learning project
           </p>
           <h1 className="font-display text-[36px] font-semibold leading-[1.15] tracking-tight text-slate-100 sm:text-[44px]">
-            Is that mole worth getting checked?
+            Try the melanoma classifier
           </h1>
           <p className="mt-4 text-[16px] leading-relaxed text-slate-400">
             Upload a close-up photo and tell us your age, sex and where the spot is. A model trained
-            on about 33,000 dermoscopy images will say whether it looks benign or worth showing a
-            dermatologist, and highlight the part of the photo that drove its answer.
+            on about 33,000 dermoscopy images will estimate how likely the photo is to be melanoma,
+            and highlight the part of the image that drove its answer.
           </p>
           <div className="mt-7 grid grid-cols-1 gap-4 sm:grid-cols-2">
             {TRUST_POINTS.map(({ icon: Icon, title, detail }) => (

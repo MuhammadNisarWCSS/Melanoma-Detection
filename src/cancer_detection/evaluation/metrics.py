@@ -197,15 +197,21 @@ def threshold_sweep(
     y_true: np.ndarray,
     y_prob: np.ndarray,
     n_points: int = 100,
+    include: list[float] | None = None,
 ) -> list[dict[str, float]]:
     """Compute sensitivity/specificity/PPV at n_points evenly spaced thresholds.
 
-    Used to power the threshold slider on the frontend.
+    Used to power the threshold slider on the frontend. ``include`` adds extra
+    threshold values (e.g. the calibrated deployment threshold) to the evenly
+    spaced grid so the slider can land on them exactly instead of snapping to
+    the nearest grid point.
 
     Returns:
         List of dicts with keys: threshold, sensitivity, specificity, ppv, tp, fp, tn, fn
     """
     thresholds = np.linspace(float(y_prob.min()), float(y_prob.max()), n_points)
+    if include:
+        thresholds = np.unique(np.concatenate([thresholds, np.array(include, dtype=float)]))
     result: list[dict[str, float]] = []
 
     for t in thresholds:

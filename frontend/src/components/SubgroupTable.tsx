@@ -116,7 +116,7 @@ export default function SubgroupTable() {
       </div>
       <p className="border-t border-ink-600/40 px-6 py-3 text-[12px] leading-relaxed text-slate-500">
         The weakest spots are patients under 40 and lesions on the legs, where the model caught only
-        2 of 5 melanomas. Older patients get the highest catch rate but also more false alarms.
+        2 of 5 melanomas. Older patients get the highest catch rate but also more false positives.
         Palms, soles and the mouth or genital area had no melanomas in the test set at all, so the
         model is untested there.
       </p>

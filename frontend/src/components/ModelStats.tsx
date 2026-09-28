@@ -450,7 +450,7 @@ export default function ModelStats() {
             <h3 className="text-[15px] font-semibold text-slate-200">Comparing architectures</h3>
             <p className="mt-1 max-w-2xl text-[13px] leading-relaxed text-slate-500">
               Different model designs, all scored on the same held-out photos. Higher AUROC means
-              better ranking of malignant vs. benign; higher specificity means fewer false alarms.
+              better ranking of malignant vs. benign; higher specificity means fewer false positives.
             </p>
             <div className="mt-5 -mx-2">
               <ArchComparison runs={stats!.runs} />

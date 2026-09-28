@@ -4,18 +4,18 @@ import { motion } from 'framer-motion'
 const STEPS = [
   {
     icon: Camera,
-    title: 'Take a clear photo',
+    title: 'Upload a clear photo',
     detail: 'Good light, in focus, close enough that the spot fills most of the frame.',
   },
   {
     icon: Sparkles,
     title: 'Add a couple details',
-    detail: 'Your age, sex, and where it is on your body help sharpen the read.',
+    detail: 'Your age, sex, and where it is on your body give the model more to work with.',
   },
   {
     icon: FileCheck,
-    title: 'Get your result',
-    detail: "See whether it looks benign or worth a dermatologist's look, and what stood out.",
+    title: 'See what the model predicts',
+    detail: "A probability score, plus a heatmap of what part of the photo it focused on.",
   },
 ]
 
@@ -65,8 +65,9 @@ export default function HowItWorks() {
           viewport={{ once: true }}
           transition={{ duration: 0.4, delay: 0.2 }}
         >
-          The model misses some melanomas and flags many harmless moles, so a "benign" result is
-          not a clearance. Use it to help decide whether to book an appointment, not to skip one.
+          This model misses real melanomas and flags plenty of harmless moles, so its results are not
+          reliable. Don't use them to decide whether to see a dermatologist. If a spot concerns you,
+          book an appointment regardless of what this tool says.
         </motion.p>
       </div>
     </section>
