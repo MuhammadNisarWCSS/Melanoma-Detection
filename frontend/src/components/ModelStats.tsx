@@ -1,57 +1,106 @@
 import { useEffect, useState } from 'react'
 import {
-  BarChart3,
-  Layers,
-  Cpu,
-  TrendingUp,
   Clock,
   CheckCircle2,
   XCircle,
   Loader2,
   RefreshCw,
+  Image as ImageIcon,
+  UserRound,
+  Scan,
+  BrainCircuit,
+  Merge,
+  ArrowDown,
+  Percent,
 } from 'lucide-react'
 import { motion } from 'framer-motion'
-import { fetchMLflowStats, fetchApiMetadata, type MLflowStats, type MLflowRun } from '../api/client'
+import {
+  fetchMLflowStats,
+  fetchApiMetadata,
+  fetchTestMetrics,
+  type MLflowStats,
+  type MLflowRun,
+} from '../api/client'
 
 // ─── Architecture diagram ─────────────────────────────────────────────────────
 
-function ArchDiagram() {
-  const lines = [
-    { text: '// MelanomaClassifier — multimodal fusion', teal: true },
-    { text: '' },
-    { text: 'Input: Dermoscopy Image (384 × 384 px)' },
-    { text: '  → EfficientNet-B4  (ImageNet pretrained, head removed)' },
-    { text: '  → AdaptiveAvgPool  →  1792-d visual features' },
-    { text: '' },
-    { text: 'Input: Patient Metadata  (age, sex, anatomical site)' },
-    { text: '  → MetadataMLP: Linear(3 → 64) → BN → ReLU → Dropout(0.3)' },
-    { text: '  → Linear(64 → 32) → ReLU  →  32-d metadata features' },
-    { text: '' },
-    { text: '// Fusion', teal: true },
-    { text: 'concat([1792-d, 32-d])  →  1824-d joint representation' },
-    { text: '  → Linear(1824 → 512) → ReLU → Dropout(0.5)' },
-    { text: '  → Linear(512 → 1)    → sigmoid  →  malignancy probability' },
-    { text: '' },
-    { text: '// Training details', teal: true },
-    { text: 'Loss: Focal Loss  (γ=2.0, α=0.5)' },
-    { text: 'Opt:  AdamW  (lr=3e-4, wd=1e-3)' },
-    { text: 'Sched: CosineAnnealingLR  ·  EarlyStopping on val AUROC' },
-    { text: 'Infer: 8-pass TTA  ·  Post-hoc threshold calibration' },
-  ]
-
+function FlowStep({
+  icon: Icon,
+  title,
+  desc,
+}: {
+  icon: typeof ImageIcon
+  title: string
+  desc: string
+}) {
   return (
-    <div className="overflow-x-auto rounded-xl bg-[#2a221c] p-5">
-      <pre className="font-mono text-[12px] leading-6 text-slate-500">
-        {lines.map((l, i) =>
-          l.text === '' ? (
-            <div key={i} className="h-3" />
-          ) : (
-            <div key={i} className={l.teal ? 'text-teal-500' : ''}>
-              {l.text}
-            </div>
-          ),
-        )}
-      </pre>
+    <div className="flex items-start gap-3 rounded-xl border border-ink-600/70 bg-ink-800/60 p-4">
+      <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal-400/10">
+        <Icon className="h-4 w-4 text-teal-500" />
+      </div>
+      <div>
+        <div className="text-[13px] font-semibold text-slate-200">{title}</div>
+        <div className="mt-0.5 text-[12px] leading-relaxed text-slate-500">{desc}</div>
+      </div>
+    </div>
+  )
+}
+
+function FlowArrow() {
+  return (
+    <div className="flex justify-center py-1">
+      <ArrowDown className="h-4 w-4 text-slate-600" />
+    </div>
+  )
+}
+
+function ArchDiagram() {
+  return (
+    <div className="mx-auto max-w-2xl">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div>
+          <FlowStep
+            icon={ImageIcon}
+            title="Dermoscopy photo"
+            desc="A close-up photo of the skin lesion, 384 by 384 pixels."
+          />
+          <FlowArrow />
+          <FlowStep
+            icon={Scan}
+            title="EfficientNet-B4"
+            desc="A general purpose image network that turns the photo into a list of 1,792 numbers describing what it sees."
+          />
+        </div>
+        <div>
+          <FlowStep
+            icon={UserRound}
+            title="Patient details"
+            desc="Age, sex, and where on the body the lesion is."
+          />
+          <FlowArrow />
+          <FlowStep
+            icon={BrainCircuit}
+            title="Small neural network"
+            desc="A much smaller network that turns those three fields into a list of 32 numbers."
+          />
+        </div>
+      </div>
+
+      <FlowArrow />
+
+      <FlowStep
+        icon={Merge}
+        title="Fusion layers"
+        desc="The two lists of numbers are joined into one and passed through a couple more layers, so the final score can weigh what the photo shows alongside who the patient is."
+      />
+
+      <FlowArrow />
+
+      <FlowStep
+        icon={Percent}
+        title="Malignancy probability"
+        desc="A single number from 0 to 1: the model's estimate of how likely the lesion is to be melanoma."
+      />
     </div>
   )
 }
@@ -168,7 +217,7 @@ function ArchComparison({ runs }: { runs: MLflowRun[] }) {
               {isChampion && (
                 <span
                   className="shrink-0 rounded border border-teal-400/20 bg-teal-400/10 px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-wider text-teal-400"
-                  title="Highest validation AUROC — test AUROC shown alongside is that run's held-out score, not necessarily the highest test AUROC in the list"
+                  title="Highest validation AUROC. The test AUROC shown alongside is that run's held-out score, not necessarily the highest test AUROC in the list."
                 >
                   CHAMPION (val)
                 </span>
@@ -227,6 +276,8 @@ export default function ModelStats() {
   const [loadState, setLoadState] = useState<LoadState>('idle')
   const [stats, setStats] = useState<MLflowStats | null>(null)
   const [ttaPasses, setTtaPasses] = useState<number | null>(null)
+  const [deployedAuroc, setDeployedAuroc] = useState<number | null>(null)
+  const [deployedBackbone, setDeployedBackbone] = useState<string | null>(null)
 
   const load = () => {
     setLoadState('loading')
@@ -235,6 +286,19 @@ export default function ModelStats() {
       .then((m) => setTtaPasses(m.tta_passes))
       .catch(() => {
         /* keep null — will show fallback */
+      })
+
+    // The deployed model's own AUROC — the same number shown in "Does it
+    // actually work?" above — so this section can never quote a stale
+    // per-run metric (e.g. a test AUROC logged before the patient-disjoint
+    // split fix) that contradicts it.
+    fetchTestMetrics()
+      .then((m) => {
+        setDeployedAuroc(m.auroc)
+        setDeployedBackbone(m.backbone)
+      })
+      .catch(() => {
+        /* keep null — will fall back to MLflow's best val AUROC */
       })
 
     fetchMLflowStats()
@@ -249,12 +313,11 @@ export default function ModelStats() {
     load()
   }, [])
 
-  const bestTestAuroc = stats?.runs?.[0]?.test_auroc ?? null
   const bestValAuroc = stats?.best_auroc ?? 0
   const totalRuns = stats?.total_runs ?? null
   const hasLiveRuns = loadState === 'success' && (stats?.runs?.length ?? 0) > 0
 
-  const bestBackbone = stats?.runs?.[0]?.backbone
+  const bestBackbone = deployedBackbone ?? stats?.runs?.[0]?.backbone
   let architectureLabel = '—'
   if (bestBackbone && bestBackbone !== 'unknown') {
     const match = bestBackbone.toLowerCase().match(/b(\d+)/)
@@ -262,64 +325,20 @@ export default function ModelStats() {
   }
 
   const ttaLabel = ttaPasses != null ? `${ttaPasses}×` : '—'
-  const ttaSub = ttaPasses != null ? 'Live from API' : 'Test-time augmentation'
 
-  // Test AUROC of the champion (best-val) run when available — not necessarily the
-  // highest test AUROC across all runs, since champion selection is by val AUROC.
-  const displayAuroc = bestTestAuroc ?? bestValAuroc
-  const displayAurocLabel = bestTestAuroc != null ? 'Champion Test AUROC' : 'Best Val AUROC'
-  const displayAurocSub =
-    bestTestAuroc != null
-      ? loadState === 'success'
-        ? 'Live from MLflow (test)'
-        : 'Held-out test set'
-      : loadState === 'success'
-        ? 'Live from MLflow (val)'
-        : 'Validated benchmark'
-
-  const statCards = [
-    {
-      icon: BarChart3,
-      label: displayAurocLabel,
-      value: displayAuroc.toFixed(3),
-      sub: displayAurocSub,
-      explain:
-        'How well the model ranks malignant photos above harmless ones, on photos it never trained on. 0.5 is a coin flip and 1.0 is perfect.',
-    },
-    {
-      icon: TrendingUp,
-      label: 'Training Runs',
-      value: totalRuns != null ? String(totalRuns) : '—',
-      sub: 'Tracked experiments',
-      explain:
-        'Each run is one attempt at training the model with different settings. All of them are logged so the best one can be picked fairly.',
-    },
-    {
-      icon: Layers,
-      label: 'Architecture',
-      value: architectureLabel,
-      sub: hasLiveRuns ? 'Best run backbone' : 'No runs yet',
-      explain:
-        'The image network at the core of the model, combined with your age, sex and body site (the "Meta" part) to make one score.',
-    },
-    {
-      icon: Cpu,
-      label: 'TTA Passes',
-      value: ttaLabel,
-      sub: ttaSub,
-      explain:
-        'Test-time augmentation. Each photo is flipped and rotated into this many copies, and their scores are averaged so the result does not depend on orientation.',
-    },
-  ]
+  // The deployed model's held-out test AUROC when available (matches the Test Set
+  // Results section exactly); falls back to the best tracked validation AUROC.
+  const displayAuroc = deployedAuroc ?? bestValAuroc
+  const displayAurocLabel = deployedAuroc != null ? 'Deployed Test AUROC' : 'Best Val AUROC'
 
   const hasArchComparison = hasLiveRuns && (stats?.runs?.some((r) => r.test_auroc != null) ?? false)
 
   return (
     <section id="stats" className="relative border-t border-ink-600/50 py-24 px-5 sm:px-8">
-      <div className="mx-auto max-w-7xl">
+      <div className="mx-auto max-w-5xl">
         {/* Header */}
         <motion.div
-          className="mb-12 flex items-start justify-between"
+          className="mb-4 flex flex-wrap items-start justify-between gap-4"
           initial={{ opacity: 0, y: 12 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
@@ -329,28 +348,24 @@ export default function ModelStats() {
             <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.2em] text-teal-400">
               Experiments
             </p>
-            <h2 className="font-display text-[32px] font-semibold tracking-tight text-slate-100">
-              Model Selection
+            <h2 className="font-display text-[34px] font-semibold tracking-tight text-slate-100">
+              How the model was chosen
             </h2>
-            <div className="mt-2 flex items-center gap-2.5">
-              <p className="text-[15px] text-slate-400">
-                {loadState === 'success'
-                  ? hasLiveRuns
-                    ? `Live MLflow data · ${stats!.runs.length} training runs tracked`
-                    : 'MLflow reachable · No runs recorded yet'
+          </div>
+
+          <div className="flex items-center gap-3">
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] ${
+                loadState === 'success'
+                  ? 'border-emerald-500/25 bg-emerald-500/8 text-emerald-400'
                   : loadState === 'error'
-                    ? 'MLflow offline · Showing static data'
-                    : 'Connecting to MLflow tracking server…'}
-              </p>
-              <span
-                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] ${
-                  loadState === 'success'
-                    ? 'border-emerald-500/25 bg-emerald-500/8 text-emerald-400'
-                    : loadState === 'error'
-                      ? 'border-slate-700 bg-ink-800/60 text-slate-600'
-                      : 'border-amber-400/25 bg-amber-400/8 text-amber-400'
-                }`}
-              >
+                    ? 'border-slate-700 bg-ink-800/60 text-slate-600'
+                    : 'border-amber-400/25 bg-amber-400/8 text-amber-400'
+              }`}
+            >
+              {loadState === 'loading' ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
                 <span
                   className={`h-1.5 w-1.5 rounded-full ${
                     loadState === 'success'
@@ -360,133 +375,137 @@ export default function ModelStats() {
                         : 'bg-amber-400 animate-pulse'
                   }`}
                 />
-                {loadState === 'success'
-                  ? 'Live'
-                  : loadState === 'error'
-                    ? 'Offline'
-                    : 'Connecting'}
-              </span>
-            </div>
-            <p className="mt-2 text-[12px] text-slate-600">
-              Val AUROC drove early stopping, checkpoint selection, and threshold calibration. Final
-              numbers are from the held-out test set above.
-            </p>
+              )}
+              {loadState === 'success'
+                ? 'Live'
+                : loadState === 'error'
+                  ? 'Offline'
+                  : 'Connecting'}
+            </span>
+            {loadState === 'error' && (
+              <button
+                onClick={load}
+                className="flex items-center gap-1.5 rounded-lg border border-ink-600/70 bg-ink-800/50 px-3 py-2 text-[12px] text-slate-500 transition-colors hover:border-ink-500 hover:text-slate-300"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                Retry
+              </button>
+            )}
           </div>
-
-          {loadState === 'error' && (
-            <button
-              onClick={load}
-              className="flex items-center gap-1.5 rounded-lg border border-ink-600/70 bg-ink-800/50 px-3 py-2 text-[12px] text-slate-500 transition-colors hover:border-ink-500 hover:text-slate-300"
-            >
-              <RefreshCw className="h-3.5 w-3.5" />
-              Retry
-            </button>
-          )}
-          {loadState === 'loading' && (
-            <Loader2 className="mt-2 h-4 w-4 animate-spin text-slate-600" />
-          )}
         </motion.div>
 
-        {/* Stat cards */}
-        <div className="mb-12 grid grid-cols-2 gap-4 lg:grid-cols-4">
-          {statCards.map(({ icon: Icon, label, value, sub, explain }, i) => (
-            <motion.div
-              key={label}
-              className="rounded-2xl border border-ink-600/70 bg-ink-800/60 p-5"
-              initial={{ opacity: 0, y: 16 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.4, delay: i * 0.07 }}
-            >
-              <div className="mb-4 flex items-center justify-between">
-                <span className="font-mono text-[10px] uppercase tracking-wider text-slate-600">
-                  {label}
-                </span>
-                <Icon className="h-3.5 w-3.5 text-teal-400/50" />
-              </div>
-              <div className="font-mono text-[30px] font-bold leading-none text-slate-100">
-                {value}
-              </div>
-              <div className="mt-1.5 text-[11px] text-slate-600">{sub}</div>
-              <p className="mt-3 border-t border-ink-600/40 pt-3 text-[12px] leading-relaxed text-slate-500">
-                {explain}
-              </p>
-            </motion.div>
-          ))}
-        </div>
+        {/* Narrative summary — replaces the old boxed stat cards */}
+        <motion.div
+          className="border-b border-ink-600/40 pb-10 pt-2 text-[15px] leading-relaxed text-slate-400"
+          initial={{ opacity: 0, y: 12 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.4 }}
+        >
+          <p>
+            {totalRuns != null ? (
+              <>
+                <span className="font-semibold text-slate-200">{totalRuns} runs</span> were tracked
+                in MLflow (a tool that logs every training attempt so results can be compared
+                honestly later), each one{' '}
+              </>
+            ) : (
+              'A series of runs were tracked in MLflow, each one '
+            )}
+            testing a different backbone, learning rate, or loss setting. A backbone is the core
+            neural network that does the actual image recognition, and it can be swapped out like a
+            part, which is exactly how these runs differ. The champion is a{' '}
+            <span className="font-semibold text-slate-200">{architectureLabel}</span> network,
+            shorthand for an EfficientNet backbone (the number after B marks how large that network
+            is) fused with the patient metadata branch, and it reached{' '}
+            <span className="font-semibold text-teal-500">
+              {displayAuroc.toFixed(3)} {displayAurocLabel.toLowerCase()}
+            </span>
+            . At inference it runs{' '}
+            <span className="font-semibold text-slate-200">
+              {ttaLabel} test-time augmentation (TTA)
+            </span>
+            , averaging the score across flips and rotations of the same photo so a prediction does
+            not depend on how the picture happened to be oriented.
+          </p>
+          <p className="mt-3 text-[13px] text-slate-500">
+            While a model trains, validation AUROC (the score on data set aside for tuning, not for
+            the final grade) does three jobs: it tells training when to stop early instead of
+            running a fixed number of passes and overfitting, it decides which pass through the data
+            gets saved as the final checkpoint, and it is what the classification threshold gets
+            calibrated against. The final numbers reported above come from the held-out test set
+            instead, a slice none of that tuning ever touched.
+          </p>
+        </motion.div>
 
         {/* Architecture comparison — real runs from MLflow */}
         {hasArchComparison && (
           <motion.div
-            className="mb-8 overflow-hidden rounded-2xl border border-ink-600/70 bg-ink-800/50"
+            className="border-b border-ink-600/40 py-10"
             initial={{ opacity: 0 }}
             whileInView={{ opacity: 1 }}
             viewport={{ once: true }}
             transition={{ duration: 0.5 }}
           >
-            <div className="border-b border-ink-600/60 px-6 py-4">
-              <h3 className="text-[15px] font-semibold text-slate-200">Architecture Comparison</h3>
-              <p className="mt-0.5 text-[12px] text-slate-600">
-                Held-out test AUROC &amp; specificity · runs from MLflow experiment
-              </p>
-              <p className="mt-2 text-[12px] leading-relaxed text-slate-500">
-                Different model designs, all scored on the same photos they never trained on. Higher
-                AUROC means better ranking, and higher specificity means fewer false alarms.
-              </p>
+            <h3 className="text-[15px] font-semibold text-slate-200">Comparing architectures</h3>
+            <p className="mt-1 max-w-2xl text-[13px] leading-relaxed text-slate-500">
+              Different model designs, all scored on the same held-out photos. Higher AUROC means
+              better ranking of malignant vs. benign; higher specificity means fewer false alarms.
+            </p>
+            <div className="mt-5 -mx-2">
+              <ArchComparison runs={stats!.runs} />
             </div>
-            <ArchComparison runs={stats!.runs} />
           </motion.div>
         )}
 
         {/* Live MLflow runs (model selection table) */}
         {hasLiveRuns && (
           <motion.div
-            className="mb-8 overflow-hidden rounded-2xl border border-ink-600/70 bg-ink-800/50"
+            className="border-b border-ink-600/40 py-10"
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4 }}
           >
-            <div className="flex items-center justify-between border-b border-ink-600/60 px-6 py-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h3 className="text-[15px] font-semibold text-slate-200">
-                  Model Selection (Validation)
-                </h3>
-                <p className="mt-0.5 text-[12px] text-slate-600">
-                  Runs sorted by val AUROC · used for early stopping &amp; checkpoint selection ·
-                  final evaluation on held-out test set
-                </p>
-                <p className="mt-2 text-[12px] leading-relaxed text-slate-500">
-                  Val AUROC is scored on a separate set used to pick the best run, so it is a little
-                  optimistic. Test AUROC and Test Specificity come from photos that were never used
-                  for training or choosing, so trust those more. Status shows whether the run
-                  finished.
+                <h3 className="text-[15px] font-semibold text-slate-200">Every experiment</h3>
+                <p className="mt-1 text-[13px] leading-relaxed text-slate-500">
+                  Sorted by validation AUROC, which drove checkpoint selection; test AUROC and
+                  specificity are the honest, held-out numbers.
                 </p>
               </div>
-              <span className="font-mono text-[11px] text-teal-400 border border-teal-400/20 rounded px-2 py-0.5">
+              <span className="font-mono text-[11px] text-teal-500 border border-teal-400/30 rounded px-2 py-0.5">
                 {stats!.runs.length} runs
               </span>
             </div>
-            <RunTable runs={stats!.runs} />
+            <div className="mt-5 overflow-hidden rounded-xl border border-ink-600/60">
+              <RunTable runs={stats!.runs} />
+            </div>
           </motion.div>
         )}
 
         {/* Architecture diagram */}
         <motion.div
-          className="overflow-hidden rounded-2xl border border-ink-600/70 bg-ink-800/50"
+          className="pt-10"
           initial={{ opacity: 0 }}
           whileInView={{ opacity: 1 }}
           viewport={{ once: true }}
           transition={{ duration: 0.5, delay: 0.1 }}
         >
-          <div className="border-b border-ink-600/60 px-6 py-4">
-            <h3 className="text-[15px] font-semibold text-slate-200">Architecture Overview</h3>
-            <p className="mt-0.5 text-[12px] text-slate-600">
-              Multimodal EfficientNet-B4 + patient metadata fusion
-            </p>
-          </div>
-          <div className="p-5">
+          <h3 className="text-[15px] font-semibold text-slate-200">Under the hood</h3>
+          <p className="mt-1 max-w-2xl text-[13px] leading-relaxed text-slate-500">
+            Here is the path a photo and a patient's details take to become one score.
+          </p>
+          <div className="mt-5">
             <ArchDiagram />
           </div>
+          <p className="mt-5 max-w-2xl text-[13px] leading-relaxed text-slate-500">
+            A few more details on how training itself works: it uses focal loss, a version of the
+            usual error measure that pays extra attention to the rare melanoma cases instead of
+            letting the far more common benign cases dominate, the AdamW optimizer to adjust the
+            network's weights after each batch of photos, and a learning rate schedule that
+            gradually takes smaller steps as training goes on so it settles instead of overshooting.
+          </p>
         </motion.div>
       </div>
     </section>

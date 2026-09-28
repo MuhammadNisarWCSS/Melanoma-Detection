@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Activity, Github } from 'lucide-react'
+import { Activity, FlaskConical, Github, Linkedin } from 'lucide-react'
 import { checkApiHealth } from '../api/client'
 
 type ApiStatus = 'checking' | 'online' | 'offline' | 'no-model'
@@ -53,13 +53,43 @@ export default function Navbar() {
           <div className="h-4 w-px bg-ink-600" />
 
           <a
+            href="https://www.linkedin.com/in/muhammadhnisar/"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="LinkedIn"
+            title="LinkedIn"
+            className="flex items-center gap-1.5 text-slate-600 hover:text-slate-300 transition-colors"
+          >
+            <Linkedin className="h-5 w-5" />
+            <span className="hidden sm:block text-[12px]">LinkedIn</span>
+          </a>
+
+          <a
             href="https://github.com/MuhammadNisarWCSS/Melanoma-Detection"
             target="_blank"
             rel="noopener noreferrer"
             aria-label="GitHub"
-            className="text-slate-600 hover:text-slate-300 transition-colors"
+            title="GitHub"
+            className="flex items-center gap-1.5 text-slate-600 hover:text-slate-300 transition-colors"
           >
             <Github className="h-5 w-5" />
+            <span className="hidden sm:block text-[12px]">GitHub</span>
+          </a>
+
+          <a
+            href={
+              import.meta.env.VITE_MLFLOW_URL
+                ? `${String(import.meta.env.VITE_MLFLOW_URL).replace(/\/$/, '')}/`
+                : 'http://3.18.225.100:5000'
+            }
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="MLflow tracking"
+            title="MLflow tracking"
+            className="flex items-center gap-1.5 text-slate-600 hover:text-slate-300 transition-colors"
+          >
+            <FlaskConical className="h-5 w-5" />
+            <span className="hidden sm:block text-[12px]">MLflow</span>
           </a>
         </div>
       </div>

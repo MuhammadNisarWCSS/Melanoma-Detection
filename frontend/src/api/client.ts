@@ -131,13 +131,9 @@ export interface CiBounds {
 
 export interface TestMetrics {
   auroc: number
-  pauc: number
   sensitivity: number
   specificity: number
   ppv: number
-  npv: number
-  f1: number
-  ece: number
   threshold: number
   tp: number
   fp: number
@@ -145,17 +141,13 @@ export interface TestMetrics {
   fn: number
   n_test: number
   n_positive: number
-  prevalence: number
   val_auroc: number | null
   backbone: string | null
   ci: {
     auroc: CiBounds
-    pauc: CiBounds
     sensitivity: CiBounds
-    specificity: CiBounds
   }
   roc: { fpr: number[]; tpr: number[] }
-  reliability: { mean_pred: number[]; mean_true: number[]; counts: number[] }
   sweep: Array<{
     threshold: number
     sensitivity: number
