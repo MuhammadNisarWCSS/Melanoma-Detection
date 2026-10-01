@@ -31,6 +31,7 @@ fi
 exec mlflow server \
   --host 0.0.0.0 \
   --port 5000 \
+  --workers 1 \
   --backend-store-uri sqlite:////mlflow/mlflow.db \
   --default-artifact-root mlflow-artifacts:/ \
   --artifacts-destination /mlflow/artifacts \

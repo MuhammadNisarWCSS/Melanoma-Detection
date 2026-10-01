@@ -131,7 +131,7 @@ app = FastAPI(
 
 # Same-origin in production (nginx proxies /api on the frontend's own port), so this
 # only needs to cover local dev (Vite on :3000) and the standalone hosted frontend.
-_default_origins = "http://localhost:3000,http://3.18.225.100:3000"
+_default_origins = "http://localhost:3000,http://52.15.211.87:3000"
 _cors_origins = os.environ.get("CORS_ORIGINS", _default_origins).split(",")
 
 app.add_middleware(

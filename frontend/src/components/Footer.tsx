@@ -29,7 +29,7 @@ export default function Footer() {
               href={
                 import.meta.env.VITE_MLFLOW_URL
                   ? `${String(import.meta.env.VITE_MLFLOW_URL).replace(/\/$/, '')}/`
-                  : 'http://3.18.225.100:5000'
+                  : 'http://52.15.211.87:5000'
               }
               target="_blank"
               rel="noopener noreferrer"

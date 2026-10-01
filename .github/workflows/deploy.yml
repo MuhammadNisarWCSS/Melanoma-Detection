@@ -11,7 +11,7 @@
 #   AWS_ACCESS_KEY_ID
 #   AWS_SECRET_ACCESS_KEY
 #   AWS_REGION                 e.g. us-east-2
-#   EC2_HOST                  public IP or DNS (e.g. 3.18.225.100)
+#   EC2_HOST                  public IP or DNS (e.g. 52.15.211.87)
 #   EC2_USER                  e.g. ec2-user or ubuntu
 #   EC2_SSH_KEY               private key PEM contents
 #   MLFLOW_SEED_S3_URI        e.g. s3://my-bucket/mlflow-seed
@@ -139,6 +139,15 @@ jobs:
             MLFLOW_IMAGE="$ECR_REGISTRY/mlflow:latest"
             BACKEND_IMAGE="$ECR_REGISTRY/backend:latest"
             FRONTEND_IMAGE="$ECR_REGISTRY/frontend:latest"
+
+            # 2 GB swap as an OOM safety net on small instances (idempotent; persists in fstab).
+            if [ ! -f /swapfile ]; then
+              sudo fallocate -l 2G /swapfile
+              sudo chmod 600 /swapfile
+              sudo mkswap /swapfile
+              echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab >/dev/null
+            fi
+            sudo swapon /swapfile 2>/dev/null || true
 
             cd "$HOME/cancer-detection"
             SEED_DIR="$HOME/mlflow-seed"
